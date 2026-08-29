@@ -241,7 +241,10 @@ class Interpreter:
 
         # wait for child to actually start execution (we don't want interrupt child setup)
         try:
-            state = self.event_outq.get(timeout=10)
+            # Windows spawn plus antivirus scanning can exceed ten seconds even
+            # when the child is healthy. A longer startup grace period prevents
+            # false failures before the per-execution timeout begins.
+            state = self.event_outq.get(timeout=60)
         except queue.Empty:
             msg = "REPL child process failed to start execution"
             logger.critical(msg)

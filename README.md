@@ -1,5 +1,10 @@
 <h1 align="center">AIDE ML — The Machine Learning Engineering Agent</h1>
 
+> **TikTok TechJam 2026 fork:** the KuaiRand autonomous recommender research
+> pipeline, deterministic judging harness, reproduced baseline, experiment
+> ledger, and exact runbook are documented in
+> [`challenge/README.md`](challenge/README.md).
+
 <p align="center"><em>
 LLM‑driven agent that writes, evaluates & improves machine‑learning code.
 </em></p>

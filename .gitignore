@@ -121,6 +121,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
 .venv
 env/
 venv/
@@ -168,3 +169,10 @@ logs
 
 .gradio/
 .ruff_cache/
+
+# TechJam data and generated experiment artifacts
+kuairand-starter-kit/KuaiRand-Pure/
+challenge/artifacts/
+challenge/runs/
+challenge/agent_data/
+challenge/private/

@@ -49,11 +49,13 @@ agent:
   code:
     model: o4-mini
     temp: 0.5
+    max_tokens: 8000
 
   # LLM settings for evaluating program output / tracebacks
   feedback:
     model: gpt-4.1-mini
     temp: 0.5
+    max_tokens: 2000
 
   # hyperparameters for the tree search
   search:

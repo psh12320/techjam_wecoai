@@ -22,7 +22,10 @@ def get_file_len_size(f: Path) -> tuple[int, str]:
     Also returns a human-readable string representation of the size.
     """
     if f.suffix in plaintext_files:
-        num_lines = sum(1 for _ in open(f))
+        # Do not inherit the Windows ANSI code page: challenge data is UTF-8
+        # and a preview must never abort an otherwise valid research run.
+        with f.open(encoding="utf-8", errors="replace") as handle:
+            num_lines = sum(1 for _ in handle)
         return num_lines, f"{num_lines} lines"
     else:
         s = f.stat().st_size

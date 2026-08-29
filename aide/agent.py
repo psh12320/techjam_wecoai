@@ -15,7 +15,28 @@ from .utils.response import extract_code, extract_text_up_to_code, wrap_code
 logger = logging.getLogger("aide")
 
 
+def _optional_max_tokens(stage_cfg) -> int | None:
+    """Read the new token cap while remaining compatible with older configs/tests."""
+
+    if hasattr(stage_cfg, "get"):
+        return stage_cfg.get("max_tokens", None)
+    return getattr(stage_cfg, "max_tokens", None)
+
+
 ExecCallbackType = Callable[[str, bool], ExecutionResult]
+
+
+@dataclass(frozen=True)
+class ReviewResult:
+    """Structured execution review, produced by an LLM or deterministic judge."""
+
+    is_bug: bool
+    summary: str
+    metric: float | None
+    lower_is_better: bool
+
+
+ResultReviewerType = Callable[[Node, ExecutionResult], ReviewResult]
 
 review_func_spec = FunctionSpec(
     name="submit_review",
@@ -99,6 +120,7 @@ def determine_task_metric(task_desc, acfg) -> TaskMetric | None:
                 func_spec=task_metric_func_spec,
                 model=acfg.feedback.model,
                 temperature=acfg.feedback.temp,
+                max_tokens=_optional_max_tokens(acfg.feedback),
             ),
         )
         metric_name = response["metric_name"]
@@ -150,12 +172,14 @@ class Agent:
         task_desc: str,
         cfg: Config,
         journal: Journal,
+        result_reviewer: ResultReviewerType | None = None,
     ):
         super().__init__()
         self.task_desc = task_desc
         self.cfg = cfg
         self.acfg = cfg.agent
         self.journal = journal
+        self.result_reviewer = result_reviewer
         self.data_preview: str | None = None
 
     def search_policy(self) -> Node | None:
@@ -259,6 +283,7 @@ class Agent:
                 user_message=None,
                 model=self.acfg.code.model,
                 temperature=self.acfg.code.temp,
+                max_tokens=_optional_max_tokens(self.acfg.code),
             )
 
             code = extract_code(completion_text)
@@ -398,6 +423,20 @@ class Agent:
 
         node.absorb_exec_result(exec_result)
 
+        if self.result_reviewer is not None:
+            review = self.result_reviewer(node, exec_result)
+            node.analysis = review.summary
+            node.is_buggy = (
+                review.is_bug or node.exc_type is not None or review.metric is None
+            )
+            if node.is_buggy:
+                node.metric = WorstMetricValue()
+            else:
+                node.metric = MetricValue(
+                    float(review.metric), maximize=not review.lower_is_better
+                )
+            return
+
         prompt = {
             "Introduction": (
                 "You are a Kaggle grandmaster attending a competition. "
@@ -417,6 +456,7 @@ class Agent:
                 func_spec=review_func_spec,
                 model=self.acfg.feedback.model,
                 temperature=self.acfg.feedback.temp,
+                max_tokens=_optional_max_tokens(self.acfg.feedback),
             ),
         )
 

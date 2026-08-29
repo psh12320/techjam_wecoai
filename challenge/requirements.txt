@@ -1,0 +1,10 @@
+# Deterministic challenge/model stack (Python 3.12)
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.14.1
+scikit-learn==1.5.2
+lightgbm==4.5.0
+optuna==4.1.0
+omegaconf==2.3.0
+python-dotenv==1.0.1
+pytest==8.3.4

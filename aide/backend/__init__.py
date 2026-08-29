@@ -3,8 +3,47 @@ from .utils import FunctionSpec, OutputType, PromptType, compile_prompt_to_md
 import re
 import logging
 import os
+import threading
 
 logger = logging.getLogger("aide")
+
+_usage_lock = threading.Lock()
+_usage_totals = {
+    "requests": 0,
+    "request_seconds": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "by_model": {},
+}
+
+
+def reset_usage_totals() -> None:
+    """Reset process-local LLM accounting before a new experiment run."""
+
+    with _usage_lock:
+        _usage_totals.update(
+            requests=0,
+            request_seconds=0.0,
+            input_tokens=0,
+            output_tokens=0,
+            by_model={},
+        )
+
+
+def get_usage_totals() -> dict:
+    """Return a detached snapshot suitable for challenge resource logs."""
+
+    with _usage_lock:
+        return {
+            "requests": _usage_totals["requests"],
+            "request_seconds": _usage_totals["request_seconds"],
+            "input_tokens": _usage_totals["input_tokens"],
+            "output_tokens": _usage_totals["output_tokens"],
+            "by_model": {
+                model: dict(values)
+                for model, values in _usage_totals["by_model"].items()
+            },
+        }
 
 
 def determine_provider(model: str) -> str:
@@ -70,5 +109,24 @@ def query(
         func_spec=func_spec,
         **model_kwargs,
     )
+
+    with _usage_lock:
+        _usage_totals["requests"] += 1
+        _usage_totals["request_seconds"] += float(req_time)
+        _usage_totals["input_tokens"] += int(in_tok_count)
+        _usage_totals["output_tokens"] += int(out_tok_count)
+        by_model = _usage_totals["by_model"].setdefault(
+            model,
+            {
+                "requests": 0,
+                "request_seconds": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            },
+        )
+        by_model["requests"] += 1
+        by_model["request_seconds"] += float(req_time)
+        by_model["input_tokens"] += int(in_tok_count)
+        by_model["output_tokens"] += int(out_tok_count)
 
     return output

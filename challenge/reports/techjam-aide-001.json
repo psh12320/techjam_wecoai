@@ -1,0 +1,19 @@
+{
+  "approval_id": "techjam-aide-001",
+  "model": "gpt-5.4",
+  "requests": 1,
+  "input_tokens": 1867,
+  "output_tokens": 3654,
+  "request_seconds": 32.33413505554199,
+  "wall_seconds": 316.02629339997657,
+  "verified_uncached_input_usd_per_million": 2.5,
+  "verified_uncached_output_usd_per_million": 15.0,
+  "estimated_actual_cost_usd": 0.0594775,
+  "approved_max_usd": 0.5,
+  "best_primary": 0.601468756352959,
+  "candidate_status": "failed",
+  "candidate_family": "leakage-safe historical aggregates plus LightGBM LambdaRank",
+  "failure": "Generated feature selection included training-only comment_stay_time, which was absent from validation.",
+  "manual_interventions_during_iteration": 0,
+  "follow_up": "Treat the official FM seed as the sole draft and require the model feature schema to be the train/validation intersection."
+}
