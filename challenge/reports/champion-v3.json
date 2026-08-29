@@ -1,0 +1,137 @@
+{
+  "baseline": {
+    "GAUC": 0.6671326321610643,
+    "nDCG@5": 0.5358048805448538,
+    "primary": 0.601468756352959
+  },
+  "champion": {
+    "components": {
+      "rad_u": 0.1,
+      "rich_lite_three_seed_ensemble": 0.8,
+      "strict_history_lambdarank": 0.1
+    },
+    "delta_over_reproduced_baseline": {
+      "GAUC": 0.0039191686975625,
+      "nDCG@5": 0.0022093711470867,
+      "primary": 0.0030642699223247
+    },
+    "fusion": "within-user z-score, then fixed weighted sum",
+    "metrics": {
+      "GAUC": 0.6710518008586268,
+      "nDCG@5": 0.5380142516919405,
+      "primary": 0.6045330262752837
+    },
+    "weight_selection": {
+      "grid_step": 0.1,
+      "simplex_candidates": 286
+    }
+  },
+  "cost": {
+    "api_requests": 4,
+    "estimated_usd": 0.2979925,
+    "input_tokens": 7357,
+    "next_notification_usd": 10.0,
+    "output_tokens": 18640
+  },
+  "rich_lite": {
+    "encoder": "train-fitted vocabulary with one unknown slot per field",
+    "ensemble": {
+      "GAUC": 0.670120031537307,
+      "nDCG@5": 0.5372793250953105,
+      "primary": 0.6036996783163088
+    },
+    "fields": [
+      "user_id",
+      "video_id",
+      "author_id",
+      "tab",
+      "duration_bucket",
+      "duration_rule_band",
+      "tab_duration_cross",
+      "hour",
+      "primary_tag",
+      "tag_2",
+      "user_active_degree",
+      "follow_user_num_range",
+      "register_days_range"
+    ],
+    "seeds": [
+      {
+        "GAUC": 0.6686863927227167,
+        "nDCG@5": 0.536220203514125,
+        "primary": 0.6024532981184209,
+        "seed": 0
+      },
+      {
+        "GAUC": 0.6689020982532846,
+        "nDCG@5": 0.5363556782254847,
+        "primary": 0.6026288882393847,
+        "seed": 1
+      },
+      {
+        "GAUC": 0.6689813257792192,
+        "nDCG@5": 0.5368235937087495,
+        "primary": 0.6029024597439844,
+        "seed": 2
+      }
+    ]
+  },
+  "rejected_followups": [
+    {
+      "best_single_seed_primary": 0.6032599683059829,
+      "ensemble_primary": 0.6029111396761543,
+      "experiment": "halve gated-FM learning rate to 0.0005",
+      "reason": "single-seed gain did not generalize across three seeds and reduced the full champion"
+    },
+    {
+      "experiment": "duration-bin watch-time percentile auxiliary",
+      "standalone": {
+        "GAUC": 0.6388470753134886,
+        "nDCG@5": 0.5248664054190956,
+        "primary": 0.5818567403662921
+      },
+      "reason": "replacing or splitting the 0.1 RAD-U weight reduced the full champion"
+    }
+  ],
+  "rolling_temporal_checks": [
+    {
+      "core": {
+        "GAUC": 0.6560644595841755,
+        "nDCG@5": 0.5604327882105157,
+        "primary": 0.6082486238973456
+      },
+      "rich_lite": {
+        "GAUC": 0.6596180241329412,
+        "nDCG@5": 0.562722993981445,
+        "primary": 0.6111705090571931
+      },
+      "train_end": 20220414,
+      "valid_end": 20220417,
+      "valid_start": 20220415
+    },
+    {
+      "core": {
+        "GAUC": 0.6594686671183678,
+        "nDCG@5": 0.5161463999143124,
+        "primary": 0.5878075335163402
+      },
+      "rich_lite": {
+        "GAUC": 0.6605012787921333,
+        "nDCG@5": 0.5167366085829803,
+        "primary": 0.5886189436875569
+      },
+      "train_end": 20220417,
+      "valid_end": 20220421,
+      "valid_start": 20220418
+    }
+  ],
+  "submission": {
+    "final_fit_end": 20220428,
+    "finite_scores": true,
+    "hidden_context_rows": 170588,
+    "score_end": 20220508,
+    "score_start": 20220429,
+    "test_labels_accessed": false,
+    "wall_seconds": 280.0928627999965
+  }
+}

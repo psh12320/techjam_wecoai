@@ -36,3 +36,37 @@ or adding coarse static user/item fields without personalized interactions.
 The final candidate must improve both GAUC and nDCG@5, not merely trade one for
 the other. Explain the hypothesis in 3–5 sentences, implement it fully, print
 useful progress, and always write the required prediction file.
+
+## Experiment memory
+
+- Reproduced five-field FM: GAUC 0.66713, nDCG@5 0.53580, primary 0.60147.
+- Frozen champion: 80% three-seed rich field-gated FM, 10% history LambdaRank,
+  and 10% user-duration RAD. It reaches GAUC 0.67105, nDCG@5 0.53801,
+  primary 0.60453: deltas +0.00392/+0.00221/+0.00306 over the reproduced FM.
+- The robust core is a three-seed field-gated FM over 13 fields, with
+  train-fitted vocabularies and explicit unknown slots. By itself it reaches
+  GAUC 0.67012, nDCG@5 0.53728, primary 0.60370.
+- Its gains have the same direction for both component metrics on rolling
+  2022-04-15–17 and 2022-04-18–21 validation folds. Future changes must beat
+  this core and repeat those checks, not just overfit the public week.
+- Standalone history LambdaRank and RAD are weaker and remain blend-only.
+- Naive hard-negative BPR, coarse sequence SVD, broad static LightGBM, and
+  indiscriminately adding all metadata fields to ordinary FM did not win.
+- Never use unobserved items as negatives. Pair only logged long-view and
+  short-view impressions from the same user.
+- Candidate features must be the train/validation column intersection. Sort
+  rows so every ranking group is contiguous and use the supplied evaluator.
+
+High-priority atomic improvements supported by KuaiRand-specific research:
+
+1. Preserve the FM score and learn a small residual with BCE plus a weak
+   within-user RankNet/LambdaLoss@5 term.
+2. Add watch-time auxiliary supervision through Relative Advantage Debiasing,
+   D2Q/D2Co, or censored Counterfactual Watch Time. Play time is a training
+   target only; blend raw interest logits with native-label FM.
+3. Improve the proven field-gated core with field-aware pair weights or a
+   small residual, rather than indiscriminately adding more metadata fields.
+4. Add candidate-aware, strictly historical DIN-lite affinity and recency.
+
+Promote only candidates improving both GAUC and nDCG@5. Prefer a small,
+complementary residual or hybrid over replacing the strong FM anchor.

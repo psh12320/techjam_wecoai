@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import aide.backend as backend
 from challenge.run_aide_research import estimate_uncached_cost
 from challenge.techjam_recsys.metrics import evaluate, rank_normalize_within_user
 from challenge.techjam_recsys.protocol import (
@@ -68,3 +69,23 @@ def test_ledger_and_champion_quality_gate(tmp_path: Path) -> None:
 
 def test_uncached_cost_envelope_matches_published_rate_math() -> None:
     assert estimate_uncached_cost(75_000, 18_000, 2.50, 15.00) == pytest.approx(0.4575)
+
+
+def test_durable_cost_tracker_emits_each_crossed_boundary(tmp_path, capsys) -> None:
+    previous = backend._cost_tracking
+    try:
+        path = tmp_path / "cost.json"
+        backend.configure_cost_tracking(path, 1.0, 0.0, notification_step_usd=10.0)
+        first = backend._record_cost_event("test", 6_000_000, 0)
+        second = backend._record_cost_event("test", 15_000_000, 0)
+        state = backend.get_cost_tracking_totals()
+
+        assert first["crossed_notification_thresholds_usd"] == []
+        assert second["crossed_notification_thresholds_usd"] == [10.0, 20.0]
+        assert state["total_estimated_cost_usd"] == pytest.approx(21.0)
+        assert state["next_notification_usd"] == 30.0
+        output = capsys.readouterr().out
+        assert '"threshold_usd": 10.0' in output
+        assert '"threshold_usd": 20.0' in output
+    finally:
+        backend._cost_tracking = previous

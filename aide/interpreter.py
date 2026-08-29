@@ -10,6 +10,7 @@ import logging
 import os
 import queue
 import signal
+import subprocess
 import sys
 import time
 import traceback
@@ -192,24 +193,43 @@ class Interpreter:
         if self.process is None:
             return
         try:
-            # Reduce grace period from 2 seconds to 0.5
             self.process.terminate()
-            self.process.join(timeout=0.5)
+            self.process.join(timeout=2.0)
 
             if self.process.exitcode is None:
                 logger.warning("Process failed to terminate, killing immediately")
                 self.process.kill()
-                self.process.join(timeout=0.5)
+                self.process.join(timeout=3.0)
 
                 if self.process.exitcode is None:
-                    logger.error("Process refuses to die, using SIGKILL")
-                    os.kill(self.process.pid, signal.SIGKILL)
+                    if os.name == "nt":
+                        logger.error("Process refuses to die, using Windows taskkill")
+                        subprocess.run(
+                            [
+                                "taskkill",
+                                "/PID",
+                                str(self.process.pid),
+                                "/T",
+                                "/F",
+                            ],
+                            check=False,
+                            capture_output=True,
+                            timeout=10,
+                        )
+                    else:
+                        logger.error("Process refuses to die, using SIGKILL")
+                        os.kill(self.process.pid, signal.SIGKILL)
+                    self.process.join(timeout=5.0)
         except Exception as e:
             logger.error(f"Error during process cleanup: {e}")
         finally:
-            if self.process is not None:
+            if self.process is not None and self.process.exitcode is not None:
                 self.process.close()
                 self.process = None
+            elif self.process is not None:
+                logger.error(
+                    "Timed-out child is still alive; leaving handle open safely"
+                )
 
     def run(self, code: str, reset_session=True) -> ExecutionResult:
         """

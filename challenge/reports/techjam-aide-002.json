@@ -1,0 +1,42 @@
+{
+  "run_id": "techjam-aide-002",
+  "model": "gpt-5.4",
+  "requests": 3,
+  "input_tokens": 5490,
+  "output_tokens": 14986,
+  "estimated_run_cost_usd": 0.238515,
+  "cumulative_estimated_cost_usd": 0.2979925,
+  "iterations": [
+    {
+      "iteration": 1,
+      "status": "failed",
+      "family": "FM-anchored historical residual",
+      "input_tokens": 1830,
+      "output_tokens": 4964,
+      "wall_seconds": 331.9975008999463
+    },
+    {
+      "iteration": 2,
+      "status": "failed",
+      "family": "historical residual repair",
+      "input_tokens": 1830,
+      "output_tokens": 4119,
+      "wall_seconds": 241.47998689999804
+    },
+    {
+      "iteration": 3,
+      "status": "success_fallback",
+      "family": "FM plus candidate-aware historical residual",
+      "input_tokens": 1830,
+      "output_tokens": 5903,
+      "wall_seconds": 775.4347542999312,
+      "metrics": {
+        "GAUC": 0.6671326321610643,
+        "nDCG@5": 0.5358048805448538,
+        "primary": 0.601468756352959
+      }
+    }
+  ],
+  "outcome": "No candidate beat the seed. Iteration 3 correctly fell back to the FM anchor because its residual did not improve both metrics.",
+  "follow_up": "Cap generated candidates at four CPU threads and 3 GB RAM; preserve failures for the autonomy ledger."
+}

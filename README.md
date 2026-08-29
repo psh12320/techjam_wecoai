@@ -1,8 +1,10 @@
 <h1 align="center">AIDE ML — The Machine Learning Engineering Agent</h1>
 
 > **TikTok TechJam 2026 fork:** the KuaiRand autonomous recommender research
-> pipeline, deterministic judging harness, reproduced baseline, experiment
-> ledger, and exact runbook are documented in
+> pipeline now reproduces the official baseline, reaches **0.60453 validation
+> primary** with positive GAUC and nDCG@5 deltas, generates a hidden-label-free
+> final submission, and records every experiment/API cost. The exact runbook is
+> documented in
 > [`challenge/README.md`](challenge/README.md).
 
 <p align="center"><em>

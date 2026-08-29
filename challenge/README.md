@@ -37,28 +37,28 @@ executable contract—GAUC and nDCG@5—is authoritative.
 
 | Branch | Validation GAUC | nDCG@5 | Primary | Decision |
 |---|---:|---:|---:|---|
-| Official FM, reproduced | 0.66713 | 0.53580 | 0.60147 | baseline champion |
+| Official FM, reproduced | 0.66713 | 0.53580 | 0.60147 | immutable baseline |
 | Ordered-history LightGBM | 0.65275 | 0.52961 | 0.59118 | reject |
 | LambdaRank history model | 0.66234 | 0.53386 | 0.59810 | blend-only |
-| FM + LambdaRank z-blend | 0.66839 | 0.53669 | 0.60254 | current best rung |
 | Hard-negative BPR FM | 0.66716 | 0.53557 | 0.60136 | reject |
 | FM + sequence SVD | 0.66714 | 0.53623 | 0.60169 | reject |
 | Out-of-time FM residual ranker | 0.66761 | 0.53620 | 0.60190 | below best rung |
-| AIDE history LambdaRank draft | — | — | — | schema failure; logged |
+| Train-only rich gated FM, 3-seed ensemble | 0.67012 | 0.53728 | 0.60370 | robust core |
+| 80% rich + 10% LambdaRank + 10% RAD-U | **0.67105** | **0.53801** | **0.60453** | frozen champion |
 
-The current best improves both components but its `+0.00094` primary lift over
-the reproduced FM is below the organizer's meaningful `0.002` threshold. It is
-not yet a winning final model. Failed branches remain in the logs because
-recovery evidence is part of the judging rubric.
+The frozen champion improves GAUC by `+0.00392`, nDCG@5 by `+0.00221`, and
+primary by `+0.00306` over the exact reproduced baseline. The rich core alone
+clears the organizer's `0.002` primary-improvement gate, and its direction is
+positive for both metrics on two earlier rolling cutoffs. The ensemble weights
+come from a deliberately coarse 0.1 simplex grid rather than a fragile fine
+search. See `reports/champion-v3.json` for exact metrics and provenance.
 
-The first paid AIDE iteration used one GPT-5.4 request (1,867 input and 3,654
-output tokens, approximately $0.0595 at the verified uncached rates). It
-proposed leakage-safe history aggregates plus LambdaRank, independently
-confirming the local portfolio direction, but selected a training-only column
-that validation does not contain. The failure is retained as agent evidence.
-The search policy now treats the reproduced FM as its sole draft, so future
-approved iterations must improve or debug an evaluated node instead of paying
-to restart from scratch.
+Four paid GPT-5.4 requests have used 7,357 input and 18,640 output tokens, for a
+durably recorded estimated total of `$0.2979925` at the verified uncached
+rates. No `$10` notification boundary has been crossed. The paid agent confirmed
+the leakage-safe history/LambdaRank direction but did not beat the deterministic
+local branches; all failures and recoveries remain in the run ledger. API cost
+is written immediately after every completed response.
 
 ## Architecture
 
@@ -73,8 +73,8 @@ to restart from scratch.
 5. **Champion policy** — prefer validation-primary best candidates that beat
    both components; use within-user normalization for conservative hybrids.
 6. **Budget/convergence controller** — hard 50-iteration/six-hour limits,
-   official epsilon/patience, per-model token accounting, and a required
-   one-run spending approval.
+   official epsilon/patience, per-model token accounting, conservative run
+   ceilings, durable cumulative spend, and notifications at each $10 boundary.
 
 ## Winning research agenda
 
@@ -148,7 +148,14 @@ Run deterministic local branches (no LLM/API spend):
 ```powershell
 .\.venv\Scripts\python.exe challenge\run_portfolio.py
 .\.venv\Scripts\python.exe challenge\run_pairwise_fm.py
+.\.venv\Scripts\python.exe challenge\run_enriched_fm.py `
+  --variant rich_lite --gated --seed 0 --epochs 12 --patience 3 `
+  --batch-size 4096
 ```
+
+The enriched encoder fits vocabularies on training rows only and maps every
+future-only category to one explicit unknown slot. This prevents the earlier
+transductive random-embedding artifact.
 
 Inspect a paid-run dry run; this never calls the API:
 
@@ -157,12 +164,24 @@ Inspect a paid-run dry run; this never calls the API:
   --steps 1 --model gpt-5.4 --max-output-tokens-per-call 6000
 ```
 
-Paid execution is deliberately blocked unless every one-run approval field is
-provided. The operator must review current official pricing and explicitly set
-an approval ID, dollar ceiling, input/output token ceilings, and the verified
-per-million-token prices. The runner refuses an envelope whose conservative
-uncached estimate exceeds the approved dollar amount. Do not put the API key
-on the command line; the runner loads ignored `.env.local`.
+Paid execution still requires explicit `--execute` and current verified
+per-million-token prices. It has conservative per-run token/dollar ceilings and
+persists cost immediately after every completed request. The operator is
+notified whenever cumulative estimated API cost crosses another $10 boundary.
+Do not put the API key on the command line; the runner loads ignored
+`.env.local`.
+
+Build the frozen 80/10/10 hidden-test submission after validation is locked:
+
+```powershell
+.\.venv\Scripts\python.exe challenge\train_submission.py --jobs 4
+```
+
+This fits through 2022-04-28 and reads only IDs, timestamp/context, duration,
+tab, and static metadata for 2022-04-29 through 2022-05-08. Hidden
+`long_view`, watch time, and engagement columns are never loaded into the score
+frame. The generated 170,588-row CSV and component arrays live under ignored
+`challenge/runs/submission/`.
 
 ## Fork workflow
 
@@ -175,8 +194,8 @@ git remote add origin https://github.com/<you>/aideml.git
 git push -u origin techjam
 ```
 
-This workspace already tracks `upstream/main` on branch `techjam`; only the
-personal `origin` URL is missing.
+This workspace tracks `upstream/main` on branch `techjam` and pushes to
+`https://github.com/psh12320/techjam_wecoai.git` as `origin`.
 
 ## Submission checklist
 

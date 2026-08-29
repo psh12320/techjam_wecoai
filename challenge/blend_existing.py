@@ -57,12 +57,22 @@ def main() -> int:
         type=Path,
         default=STARTER / "KuaiRand-Pure" / "data",
     )
+    parser.add_argument(
+        "--validation-index",
+        type=Path,
+        default=ROOT / "challenge" / "agent_data" / "validation_index.npz",
+    )
     args = parser.parse_args()
 
-    splits = load_train_valid_only(args.data_dir)
-    valid_rows = splits["valid"]
-    users = np.asarray([row[1] for row in valid_rows])
-    labels = np.asarray([row[6] for row in valid_rows], dtype=np.int8)
+    if args.validation_index.exists():
+        index = np.load(args.validation_index)
+        users = index["user_id"]
+        labels = index["long_view"]
+    else:
+        splits = load_train_valid_only(args.data_dir)
+        valid_rows = splits["valid"]
+        users = np.asarray([row[1] for row in valid_rows])
+        labels = np.asarray([row[6] for row in valid_rows], dtype=np.int8)
     fm_raw = np.load(args.fm)
     fm = transform(args.method, users, fm_raw)
     baseline = evaluate(users, labels, fm_raw)

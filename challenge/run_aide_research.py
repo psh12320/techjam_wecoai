@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -50,6 +51,7 @@ class KuaiRandAgent(Agent):
                 "Derive model features from the train/validation column intersection; training-only outcome columns must never enter X.",
                 "Write ./working/validation_predictions.csv with exactly the header row_id,score and 124909 aligned rows.",
                 "Use a fixed random seed and finish within the execution timeout.",
+                "Use at most four CPU threads and keep peak memory below 3 GB; never derive thread count from os.cpu_count().",
                 "Print useful training progress, but the external deterministic evaluator is authoritative.",
             ]
         }
@@ -91,17 +93,23 @@ def parse_args():
     parser.add_argument("--model", default="gpt-5.4")
     parser.add_argument("--max-output-tokens-per-call", type=int, default=6000)
     parser.add_argument("--per-trial-timeout", type=int, default=900)
-    parser.add_argument("--approval-id")
-    parser.add_argument("--approved-max-usd", type=float)
-    parser.add_argument("--approved-max-input-tokens", type=int)
-    parser.add_argument("--approved-max-output-tokens", type=int)
-    parser.add_argument("--input-usd-per-million", type=float)
-    parser.add_argument("--output-usd-per-million", type=float)
+    parser.add_argument("--run-id", default=None)
+    parser.add_argument("--max-run-usd", type=float, default=2.0)
+    parser.add_argument("--max-input-tokens", type=int, default=250_000)
+    parser.add_argument("--max-output-tokens", type=int, default=60_000)
+    parser.add_argument("--input-usd-per-million", type=float, required=False)
+    parser.add_argument("--output-usd-per-million", type=float, required=False)
+    parser.add_argument("--cost-notification-step-usd", type=float, default=10.0)
     parser.add_argument(
         "--agent-data", type=Path, default=ROOT / "challenge" / "agent_data"
     )
     parser.add_argument(
         "--run-root", type=Path, default=ROOT / "challenge" / "runs" / "aide"
+    )
+    parser.add_argument(
+        "--cumulative-cost-file",
+        type=Path,
+        default=ROOT / "challenge" / "private" / "api_spend.json",
     )
     return parser.parse_args()
 
@@ -118,34 +126,31 @@ def main() -> int:
         "deterministic_review_api_calls": 0,
         "max_output_tokens_per_call": args.max_output_tokens_per_call,
         "worst_case_output_tokens": (args.steps * 3 * args.max_output_tokens_per_call),
-        "approval_required_every_run": True,
+        "per_run_approval_required": False,
+        "cost_notifications_usd": args.cost_notification_step_usd,
     }
     if not args.execute:
         print("DRY_RUN=" + json.dumps(dry_run, sort_keys=True))
         return 0
     required = {
-        "approval_id": args.approval_id,
-        "approved_max_usd": args.approved_max_usd,
-        "approved_max_input_tokens": args.approved_max_input_tokens,
-        "approved_max_output_tokens": args.approved_max_output_tokens,
         "input_usd_per_million": args.input_usd_per_million,
         "output_usd_per_million": args.output_usd_per_million,
     }
     missing = [key for key, value in required.items() if value is None]
     if missing:
         raise RuntimeError(
-            "Paid run blocked; missing one-run approval fields: " + ", ".join(missing)
+            "Paid run blocked; current pricing must be supplied: " + ", ".join(missing)
         )
     estimated_ceiling = estimate_uncached_cost(
-        args.approved_max_input_tokens,
-        args.approved_max_output_tokens,
+        args.max_input_tokens,
+        args.max_output_tokens,
         args.input_usd_per_million,
         args.output_usd_per_million,
     )
-    if estimated_ceiling > args.approved_max_usd:
+    if estimated_ceiling > args.max_run_usd:
         raise RuntimeError(
             f"Paid run blocked: token envelope estimates ${estimated_ceiling:.4f}, "
-            f"above the approved ${args.approved_max_usd:.4f} ceiling"
+            f"above the configured ${args.max_run_usd:.4f} run ceiling"
         )
     if not args.agent_data.exists():
         raise RuntimeError("Run challenge/prepare_agent_data.py first")
@@ -174,7 +179,7 @@ def main() -> int:
     cfg.agent.search.num_drafts = 1
     cfg.agent.code.model = args.model
     # Current GPT-5 generation models do not need AIDE's legacy sampling value.
-    # Keeping this unset also avoids spending an approved call on a rejected
+    # Keeping this unset also avoids spending a configured call on a rejected
     # request when a model does not support a custom temperature.
     cfg.agent.code.temp = None
     cfg.agent.code.max_tokens = args.max_output_tokens_per_call
@@ -201,6 +206,13 @@ def main() -> int:
     ledger = ExperimentLedger(cfg.log_dir / "iterations.jsonl")
     tracker = ConvergenceTracker(max_iterations=min(args.steps + 1, 50))
     backend.reset_usage_totals()
+    backend.configure_cost_tracking(
+        args.cumulative_cost_file,
+        args.input_usd_per_million,
+        args.output_usd_per_million,
+        args.cost_notification_step_usd,
+    )
+    run_id = args.run_id or f"techjam-aide-{uuid.uuid4().hex[:8]}"
     run_started = time.perf_counter()
 
     def execute(code: str, reset_session: bool = True):
@@ -235,13 +247,11 @@ def main() -> int:
 
     for iteration in range(1, args.steps + 1):
         usage_before = backend.get_usage_totals()
-        remaining_output = (
-            args.approved_max_output_tokens - usage_before["output_tokens"]
-        )
+        remaining_output = args.max_output_tokens - usage_before["output_tokens"]
         retry_reserve = 3 * args.max_output_tokens_per_call
         if remaining_output < retry_reserve:
             print(
-                "Stopping before the next API call: the remaining approved "
+                "Stopping before the next API call: the remaining configured "
                 "output-token budget does not cover the three-retry reserve."
             )
             break
@@ -283,16 +293,16 @@ def main() -> int:
         observed = float(metrics["primary"]) if metrics else 0.0
         if tracker.observe(observed):
             break
-        if usage_after["input_tokens"] >= args.approved_max_input_tokens:
-            print("Stopping: approved input-token budget reached.")
+        if usage_after["input_tokens"] >= args.max_input_tokens:
+            print("Stopping: configured input-token budget reached.")
             break
 
     interpreter.cleanup_session()
     usage = backend.get_usage_totals()
     best = journal.get_best_node()
     result = {
-        "approval_id": args.approval_id,
-        "approved_max_usd": args.approved_max_usd,
+        "run_id": run_id,
+        "max_run_usd": args.max_run_usd,
         "estimated_uncached_cost_ceiling": estimated_ceiling,
         "pricing_usd_per_million": {
             "input": args.input_usd_per_million,
@@ -304,6 +314,7 @@ def main() -> int:
         "stop_reason": tracker.stop_reason,
         "wall_seconds": time.perf_counter() - run_started,
         "usage": usage,
+        "cumulative_cost": backend.get_cost_tracking_totals(),
         "manual_interventions": 0,
     }
     (cfg.log_dir / "resource_summary.json").write_text(
