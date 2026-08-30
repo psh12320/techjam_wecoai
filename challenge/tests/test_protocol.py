@@ -72,14 +72,14 @@ def test_convergence_uses_organizer_epsilon_and_patience() -> None:
     assert tracker.stop_reason == "converged"
 
 
-def test_failed_execution_counts_toward_attempt_cap_not_metric_patience() -> None:
-    tracker = ConvergenceTracker(max_iterations=4)
+def test_failed_execution_counts_toward_metric_patience() -> None:
+    tracker = ConvergenceTracker(max_iterations=6)
     assert tracker.observe(0.6016) is False
     assert tracker.observe_failure() is False
-    assert tracker.insignificant_iterations == 0
+    assert tracker.insignificant_iterations == 1
     assert tracker.observe(0.6020) is False
     assert tracker.observe_failure() is True
-    assert tracker.stop_reason == "iteration_cap"
+    assert tracker.stop_reason == "converged"
 
 
 def test_ledger_and_champion_quality_gate(tmp_path: Path) -> None:
@@ -327,5 +327,27 @@ def test_durable_cost_tracker_emits_each_crossed_boundary(tmp_path, capsys) -> N
         output = capsys.readouterr().out
         assert '"threshold_usd": 10.0' in output
         assert '"threshold_usd": 20.0' in output
+    finally:
+        backend._cost_tracking = previous
+
+
+def test_cost_tracker_includes_web_search_tool_charges(tmp_path) -> None:
+    previous = backend._cost_tracking
+    try:
+        path = tmp_path / "cost.json"
+        backend.configure_cost_tracking(
+            path,
+            4.0,
+            20.0,
+            notification_step_usd=10.0,
+            web_search_usd_per_call=0.01,
+        )
+        event = backend._record_cost_event(
+            "gpt-5.6-sol", 1_000_000, 100_000, web_search_calls=3
+        )
+        state = backend.get_cost_tracking_totals()
+        assert event["web_search_cost_usd"] == pytest.approx(0.03)
+        assert event["estimated_cost_usd"] == pytest.approx(6.03)
+        assert state["total_web_search_calls"] == 3
     finally:
         backend._cost_tracking = previous

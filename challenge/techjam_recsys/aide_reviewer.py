@@ -32,6 +32,9 @@ class KuaiRandPredictionReviewer:
         self.prediction_path = (
             self.workspace_dir / "working" / "validation_predictions.csv"
         )
+        self.change_decision_path = (
+            self.workspace_dir / "working" / "change_decision.json"
+        )
         index = np.load(validation_index_path)
         self.row_ids = index["row_id"]
         self.users = index["user_id"]
@@ -73,6 +76,68 @@ class KuaiRandPredictionReviewer:
 
     def clear_candidate_output(self) -> None:
         self.prediction_path.unlink(missing_ok=True)
+        self.change_decision_path.unlink(missing_ok=True)
+
+    def _load_change_decision(self, node: Node) -> dict[str, object]:
+        if node.parent is None:
+            return {
+                "accepted_change": True,
+                "reason": "immutable organizer ancestry root",
+            }
+        if not self.change_decision_path.exists():
+            raise ValueError("candidate did not write working/change_decision.json")
+        value = json.loads(self.change_decision_path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("change_decision.json must contain one JSON object")
+        if not isinstance(value.get("accepted_change"), bool):
+            raise ValueError("change_decision.accepted_change must be boolean")
+        if not str(value.get("reason") or "").strip():
+            raise ValueError("change_decision.reason must be nonempty")
+        for key in ("internal_parent_metrics", "internal_candidate_metrics"):
+            if not isinstance(value.get(key), dict):
+                raise ValueError(f"change_decision.{key} must be an object")
+        return value
+
+    def _nearest_metric_parent_scores(
+        self, node: Node
+    ) -> tuple[Node, np.ndarray]:
+        parent = node.parent
+        while parent is not None:
+            if parent.metric is not None and not parent.metric.is_worst:
+                scores = self.previous_predictions.get(parent.id)
+                if scores is None:
+                    artifact = self.artifact_dir / f"{parent.id}.npy"
+                    if artifact.exists():
+                        scores = np.load(artifact)
+                if scores is not None:
+                    return parent, np.asarray(scores, dtype=np.float64)
+            parent = parent.parent
+        raise ValueError("no metric-bearing parent prediction is available for fallback")
+
+    @staticmethod
+    def _metric_summary(metrics: dict[str, float]) -> dict[str, object]:
+        deltas = {
+            key: float(metrics[key] - BASELINE_VALID[key])
+            for key in ("GAUC", "nDCG@5", "primary")
+        }
+        champion_deltas = {
+            key: float(metrics[key] - CHAMPION_VALID[key])
+            for key in ("GAUC", "nDCG@5", "primary")
+        }
+        return {
+            "metrics": {
+                key: metrics[key] for key in ("GAUC", "nDCG@5", "primary")
+            },
+            "baseline_deltas": deltas,
+            "champion_deltas": champion_deltas,
+            "beats_both_components": (
+                deltas["GAUC"] > 0 and deltas["nDCG@5"] > 0
+            ),
+            "beats_champion": all(
+                champion_deltas[key] > 0
+                for key in ("GAUC", "nDCG@5", "primary")
+            ),
+        }
 
     def __call__(self, node: Node, result: ExecutionResult) -> ReviewResult:
         if result.exc_type is not None:
@@ -90,6 +155,39 @@ class KuaiRandPredictionReviewer:
                 lower_is_better=False,
             )
         try:
+            decision = self._load_change_decision(node)
+            node.candidate_spec["runtime_change_accepted"] = bool(
+                decision["accepted_change"]
+            )
+            node.candidate_spec["change_decision_reason"] = str(decision["reason"])
+            if not decision["accepted_change"]:
+                parent, scores = self._nearest_metric_parent_scores(node)
+                if scores.shape != self.labels.shape or not np.isfinite(scores).all():
+                    raise ValueError("trusted parent fallback predictions are invalid")
+                metrics = evaluate(self.users, self.labels, scores)
+                node.candidate_spec["fallback_parent_node_id"] = parent.id
+                diagnostic_record: dict[str, object] = {
+                    "accepted_change": False,
+                    "fallback_parent_node_id": parent.id,
+                    "max_frontier_prediction_correlation": 1.0,
+                    "prompt_summary": (
+                        "The candidate's internal gate rejected its scientific change; "
+                        "the trusted harness retained the exact metric-bearing parent."
+                    ),
+                }
+                self.diagnostics_by_node[node.id] = diagnostic_record
+                summary = {
+                    **self._metric_summary(metrics),
+                    "scientific_change_accepted": False,
+                    "fallback_parent_node_id": parent.id,
+                    "change_decision_reason": str(decision["reason"]),
+                }
+                return ReviewResult(
+                    is_bug=False,
+                    summary=json.dumps(summary, sort_keys=True),
+                    metric=float(metrics["primary"]),
+                    lower_is_better=False,
+                )
             frame = pd.read_csv(self.prediction_path)
             if list(frame.columns) != ["row_id", "score"]:
                 raise ValueError("header must be exactly row_id,score")
@@ -108,14 +206,7 @@ class KuaiRandPredictionReviewer:
             if np.array_equal(scores, self.labels.astype(np.float64)):
                 raise ValueError("predictions exactly copy validation labels")
             metrics = evaluate(self.users, self.labels, scores)
-            deltas = {
-                key: float(metrics[key] - BASELINE_VALID[key])
-                for key in ("GAUC", "nDCG@5", "primary")
-            }
-            champion_deltas = {
-                key: float(metrics[key] - CHAMPION_VALID[key])
-                for key in ("GAUC", "nDCG@5", "primary")
-            }
+            metric_summary = self._metric_summary(metrics)
             np.save(self.artifact_dir / f"{node.id}.npy", scores)
             shutil.copy2(
                 self.prediction_path,
@@ -143,6 +234,7 @@ class KuaiRandPredictionReviewer:
                         float(values.get("within_user_rank_correlation", 0.0))
                     )
             diagnostic_record: dict[str, object] = {
+                "accepted_change": True,
                 "diagnostics_sha256": diagnostics["diagnostics_sha256"],
                 "max_frontier_prediction_correlation": (
                     max(correlations) if correlations else None
@@ -155,18 +247,8 @@ class KuaiRandPredictionReviewer:
                 self.previous_predictions.pop(next(iter(self.previous_predictions)))
             summary = json.dumps(
                 {
-                    "metrics": {
-                        key: metrics[key] for key in ("GAUC", "nDCG@5", "primary")
-                    },
-                    "baseline_deltas": deltas,
-                    "champion_deltas": champion_deltas,
-                    "beats_both_components": (
-                        deltas["GAUC"] > 0 and deltas["nDCG@5"] > 0
-                    ),
-                    "beats_champion": all(
-                        champion_deltas[key] > 0
-                        for key in ("GAUC", "nDCG@5", "primary")
-                    ),
+                    **metric_summary,
+                    "scientific_change_accepted": True,
                     "diagnostics_sha256": diagnostics["diagnostics_sha256"],
                     "diagnostics_summary": diagnostic_record["prompt_summary"],
                     "max_frontier_prediction_correlation": diagnostic_record[

@@ -228,6 +228,15 @@ def query(
         "system_fingerprint": getattr(response, "system_fingerprint", None),
         "model": response.model,
         "created": getattr(response, "created", None),
+        "web_search_calls": (
+            sum(
+                1
+                for item in getattr(response, "output", []) or []
+                if getattr(item, "type", None) == "web_search_call"
+            )
+            if not use_chat_api
+            else 0
+        ),
     }
 
     logger.info(

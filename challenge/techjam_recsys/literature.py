@@ -383,6 +383,10 @@ _QUERY_RULES = (
         ("gauc", "group auc", "user auc", "bce"),
         "group-aware implicit-feedback recommendation ranking objective original paper",
     ),
+    (
+        ("segment", "warm user", "short video", "mixture", "gating"),
+        "segment gated mixture of experts recommender ranking original paper",
+    ),
 )
 
 

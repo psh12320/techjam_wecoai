@@ -96,6 +96,16 @@ def _experiment_memory_prompt(value: dict[str, Any], *, max_chars: int) -> str:
             "features": list(config.get("features") or [])[:8],
             "losses": config.get("losses"),
             "target_metric": config.get("target_metric"),
+            "role": config.get("role"),
+            "external_role_gate_passed": config.get("external_role_gate_passed"),
+            "runtime_change_accepted": config.get("runtime_change_accepted"),
+            "change_decision_reason": config.get("change_decision_reason"),
+            "fallback_parent_node_id": config.get("fallback_parent_node_id"),
+        }
+        compact = {
+            key: child
+            for key, child in compact.items()
+            if child is not None and child != [] and child != {}
         }
         candidate = dict(projected)
         candidate["entries"] = [*projected["entries"], compact]
@@ -107,6 +117,46 @@ def _experiment_memory_prompt(value: dict[str, Any], *, max_chars: int) -> str:
         projected = candidate
     projected["included_entries"] = len(projected["entries"])
     projected["available_entries"] = len(entries)
+    return json.dumps(
+        projected, sort_keys=True, ensure_ascii=True, separators=(",", ":")
+    )
+
+
+def _literature_prompt(value: dict[str, Any], *, max_chars: int) -> str:
+    """Project the largest bounded set of sanitized literature notes."""
+
+    _reject_unsafe_memory(value)
+    notes = value.get("notes", [])
+    projected: dict[str, Any] = {
+        "mode": value.get("mode"),
+        "manifest_sha256": value.get("manifest_sha256"),
+        "notes": [],
+    }
+    for note in notes if isinstance(notes, list) else []:
+        if not isinstance(note, dict):
+            continue
+        compact = {
+            key: note.get(key)
+            for key in (
+                "citation_id",
+                "title",
+                "year",
+                "url",
+                "technique",
+                "effect",
+                "cost",
+                "risk",
+                "applicability",
+            )
+            if note.get(key) is not None
+        }
+        candidate = {**projected, "notes": [*projected["notes"], compact]}
+        rendered = json.dumps(candidate, sort_keys=True, ensure_ascii=True)
+        if len(rendered) > max_chars:
+            break
+        projected = candidate
+    projected["included_notes"] = len(projected["notes"])
+    projected["available_notes"] = len(notes) if isinstance(notes, list) else 0
     return json.dumps(
         projected, sort_keys=True, ensure_ascii=True, separators=(",", ":")
     )
@@ -158,5 +208,5 @@ def load_prompt_context(
         experiment_memory=_experiment_memory_prompt(memory, max_chars=16_000),
         research_menu=menu,
         eda_evidence=_bounded_json(eda, max_chars=8_000),
-        literature_evidence=_bounded_json(literature, max_chars=12_000),
+        literature_evidence=_literature_prompt(literature, max_chars=18_000),
     )

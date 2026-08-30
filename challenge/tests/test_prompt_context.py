@@ -170,3 +170,66 @@ def test_prompt_projection_keeps_all_sixteen_compact_entries(tmp_path: Path) -> 
     assert {entry["node_id"] for entry in prompt["entries"]} == {
         f"node-{index}" for index in range(16)
     }
+
+
+def test_repair_outcome_uses_nearest_metric_parent(tmp_path: Path) -> None:
+    ledger = ExperimentLedger(tmp_path / "repair.jsonl")
+    root = TrialRecord(
+        iteration=0,
+        hypothesis="organizer",
+        model_family="official_fm_seed",
+        status="success",
+        metrics={"GAUC": 0.667, "nDCG@5": 0.536, "primary": 0.6015},
+    )
+    ledger.append(root)
+    failed = TrialRecord(
+        iteration=1,
+        hypothesis="duration branch",
+        model_family="duration_auxiliary",
+        status="failed",
+        parent_trial_id=root.trial_id,
+    )
+    ledger.append(failed)
+    repaired = TrialRecord(
+        iteration=2,
+        hypothesis="same duration branch repaired",
+        model_family="duration_auxiliary",
+        status="success",
+        parent_trial_id=failed.trial_id,
+        metrics={"GAUC": 0.666, "nDCG@5": 0.535, "primary": 0.6005},
+    )
+    ledger.append(repaired)
+
+    memory = build_memory([ledger.path], max_entries=3)
+    repair_entry = next(
+        entry for entry in memory["entries"] if entry["trial_id"] == repaired.trial_id
+    )
+    assert repair_entry["outcome"] == "parent_dominated"
+
+
+def test_internal_rejection_is_recorded_as_falsified(tmp_path: Path) -> None:
+    ledger = ExperimentLedger(tmp_path / "falsified.jsonl")
+    root = TrialRecord(
+        iteration=0,
+        hypothesis="organizer",
+        model_family="official_fm_seed",
+        status="success",
+        metrics={"GAUC": 0.667, "nDCG@5": 0.536, "primary": 0.6015},
+    )
+    ledger.append(root)
+    rejected = TrialRecord(
+        iteration=1,
+        hypothesis="rejected residual",
+        model_family="history_residual",
+        status="success",
+        parent_trial_id=root.trial_id,
+        config={"runtime_change_accepted": False},
+        metrics=dict(root.metrics or {}),
+    )
+    ledger.append(rejected)
+
+    memory = build_memory([ledger.path], max_entries=2)
+    entry = next(
+        item for item in memory["entries"] if item["trial_id"] == rejected.trial_id
+    )
+    assert entry["outcome"] == "falsified_internal"

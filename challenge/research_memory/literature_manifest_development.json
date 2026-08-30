@@ -1,0 +1,628 @@
+{
+  "schema_version": 1,
+  "mode": "development",
+  "notes": [
+    {
+      "citation_id": "lit-0eceb75a4709813d",
+      "title": "On Optimizing Top-K Metrics for Neural Ranking Models",
+      "authors": [
+        "Rolf Jagerman",
+        "Zhen Qin",
+        "Xuanhui Wang",
+        "Michael Bendersky",
+        "Marc Najork"
+      ],
+      "year": 2022,
+      "url": "https://research.google/pubs/on-optimizing-top-k-metrics-for-neural-ranking-models/",
+      "technique": "Extends LambdaLoss with theoretically grounded weights for truncated metrics such as NDCG@K, replacing the original framework's top-k heuristic. ([research.google](https://research.google/pubs/on-optimizing-top-k-metrics-for-neural-ranking-models/?utm_source=openai))",
+      "data": "The paper supplies a top-k derivation and neural-ranking experiments on public learning-to-rank collections; KuaiRand transfer remains untested.",
+      "effect": "Best conceptual match for nDCG@5 and likely the strongest top-five reranking candidate. GAUC receives limited benefit because ordering below rank five is largely de-emphasized.",
+      "cost": "Pairwise list loss with cutoff masks; roughly LambdaLoss cost and practical for small reranking slates on CPU. Candidate scoring usually dominates inference cost.",
+      "risk": "Can ignore useful distinctions outside the cutoff, overfit sparse top-five labels, and cannot recover relevant items absent from the candidate set.",
+      "applicability": "Highest-priority 15-minute trial for KuaiRand nDCG@5. For joint optimization, blend it with a low-weight RankNet objective and select by validation GAUC plus nDCG@5."
+    },
+    {
+      "citation_id": "lit-0ee735fb09d5243d",
+      "title": "Set2setRank: Collaborative Set to Set Ranking for Implicit Feedback based Recommendation",
+      "authors": [
+        "Lei Chen",
+        "Le Wu",
+        "Kun Zhang",
+        "Richang Hong",
+        "Meng Wang"
+      ],
+      "year": 2021,
+      "url": "https://arxiv.org/abs/2105.07377",
+      "technique": "Compares sampled positive and unobserved sets within each user, combining item-to-set separation with a set-level margin against the hardest sampled negative.",
+      "data": "Uses per-user observed and unobserved item sets, sampling L positives and K negatives. The paper supplies complexity analysis and component ablations.",
+      "effect": "Expected to improve top-k separation and nDCG@5 by exposing each positive to multiple negatives; GAUC alignment is useful but less direct than BPR.",
+      "cost": "Medium: reported complexity scales with interactions times K+L. Small sets are feasible, but harder than BPR within 15 minutes.",
+      "risk": "Hard negatives can be unobserved positives; users with very few positives cannot form informative sets. Results can be sensitive to K, L and margin weighting.",
+      "applicability": "A second-stage experiment after BPR/LambdaRank. Use tiny sets and cap hard-negative mining; otherwise the extra complexity is unlikely to justify the constrained trial."
+    },
+    {
+      "citation_id": "lit-1523841d025e0e9f",
+      "title": "Contrastive Learning for Cold-Start Recommendation",
+      "authors": [
+        "Yinwei Wei",
+        "Xiang Wang",
+        "Qi Li",
+        "Liqiang Nie",
+        "Yan Li",
+        "Xuanping Li",
+        "Tat-Seng Chua"
+      ],
+      "year": 2021,
+      "url": "https://arxiv.org/abs/2107.05315",
+      "technique": "CLCRec aligns content representations with collaborative user/item embeddings through contrastive objectives motivated by mutual-information maximization. ([arxiv.org](https://arxiv.org/abs/2107.05315?utm_source=openai))",
+      "data": "Evaluation explicitly separates warm and cold-start settings across four recommendation datasets and analyzes content–collaborative representation transfer.",
+      "effect": "Expected to improve both metrics on genuinely unseen items. GAUC benefits from better user–item separation; nDCG@5 may require an additional pairwise or top-weighted ranking loss.",
+      "cost": "Medium to high. A reduced-dimensional encoder, small sampled batches, and limited negatives are necessary for a 15-minute CPU trial.",
+      "risk": "False contrastive negatives, popularity leakage, and unstable loss weighting can erase gains; more tuning-sensitive than FM-based approaches.",
+      "applicability": "Use only after establishing a metadata-embedding baseline. Most relevant when the evaluation contains substantial item cold-start and content features are informative."
+    },
+    {
+      "citation_id": "lit-15593742ec9f65f6",
+      "title": "Counteracting Duration Bias in Video Recommendation via Counterfactual Watch Time",
+      "authors": [
+        "Haiyuan Zhao",
+        "Guohao Cai",
+        "Jieming Zhu",
+        "Zhenhua Dong",
+        "Jun Xu",
+        "Ji-Rong Wen"
+      ],
+      "year": 2024,
+      "url": "https://arxiv.org/abs/2406.07932",
+      "technique": "Model watch time as right-censored by video duration and learn counterfactual watch-time interest with a censored likelihood.",
+      "data": "Training play time, duration, a full-play censoring indicator, and serving-time backbone features.",
+      "effect": "Targets GAUC and duration-segment stability, with indirect nDCG effects.",
+      "cost": "Medium-high because the custom likelihood adds sensitive distribution parameters.",
+      "risk": "Likelihood instability can consume the trial budget; use only a tiny head after simpler duration targets are exhausted.",
+      "applicability": "The EDA shows a material full-play share, matching the censoring formulation."
+    },
+    {
+      "citation_id": "lit-167eed9c40b6580e",
+      "title": "Factorization Machines for Data with Implicit Feedback",
+      "authors": [
+        "Babak Loni",
+        "Martha Larson",
+        "Alan Hanjalic"
+      ],
+      "year": 2018,
+      "url": "https://arxiv.org/abs/1812.08254",
+      "technique": "FM-Pair combines factorization-machine feature interactions with the BPR pairwise objective for implicit feedback. Complexity scales linearly with active features. ([arxiv.org](https://arxiv.org/abs/1812.08254?utm_source=openai))",
+      "data": "Evidence covers implicit-feedback ranking with auxiliary contextual and cross-domain features.",
+      "effect": "Likely positive GAUC effect because BPR directly learns positive-versus-negative ordering. nDCG@5 gains may be smaller unless negatives are hard or position-weighted.",
+      "cost": "Low to medium. Suitable for sparse categorical KuaiRand features, small latent dimensions, and sampled pairs on CPU.",
+      "risk": "Unexposed items treated as negatives create exposure bias; unrestricted feature crosses or high-cardinality fields increase memory and overfitting.",
+      "applicability": "Strong CPU baseline for combining user, item, content, and context fields. Prefer sampled exposed non-clicks when available and emphasize hard negatives for nDCG@5."
+    },
+    {
+      "citation_id": "lit-1adf1d48a5c71603",
+      "title": "Automatic Expert Selection for Multi-Scenario and Multi-Task Search",
+      "authors": [
+        "Xinyu Zou",
+        "Zhi Hu",
+        "Yiming Zhao",
+        "Xuchu Ding",
+        "Zhongyi Liu",
+        "Chenliang Li",
+        "Aixin Sun"
+      ],
+      "year": 2022,
+      "url": "https://arxiv.org/abs/2205.14321",
+      "technique": "AESM² stacks scenario-specialization layers below task-specialization layers and learns which shared or specialized experts each input should use.",
+      "data": "Evaluated on two industrial-scale datasets, with offline comparisons, component analysis, and an online deployment study. ([arxiv.org](https://arxiv.org/abs/2205.14321?utm_source=openai))",
+      "effect": "Expected to improve segment-level GAUC by reducing majority-segment domination. It may improve nDCG@5 when scenario identity strongly changes item relevance.",
+      "cost": "High for the stated budget: multiple expert layers and learned selection add training overhead. A heavily reduced single-layer variant might fit; the full method is unlikely to finish a useful CPU trial in 15 minutes.",
+      "risk": "Selection instability, expert starvation, and over-specialization of small segments. More hyperparameters make short trials unreliable.",
+      "applicability": "Useful conceptual extension if KuaiRand segments represent distinct traffic scenarios. Less attractive than small MMoE under four CPU threads."
+    },
+    {
+      "citation_id": "lit-20c9f4a701b60016",
+      "title": "Deep Interest Network for Click-Through Rate Prediction",
+      "authors": [
+        "Guorui Zhou",
+        "Chengru Song",
+        "Xiaoqiang Zhu",
+        "Ying Fan",
+        "Han Zhu",
+        "Xiao Ma",
+        "Yanghui Yan",
+        "Junqi Jin",
+        "Han Li",
+        "Kun Gai"
+      ],
+      "year": 2018,
+      "url": "https://arxiv.org/abs/1706.06978",
+      "technique": "Use candidate-conditioned local activation over historical behavior embeddings.",
+      "data": "Strictly earlier ordered histories plus candidate and historical item metadata.",
+      "effect": "Targets user-specific GAUC and may lift top-five ranking when recent interests are supported.",
+      "cost": "High unless history length, embedding width, and attention depth are tightly bounded.",
+      "risk": "Earlier CPU implementations timed out or exceeded memory; exact-item histories are sparse.",
+      "applicability": "A tag-focused DIN-lite is more defensible than a full item sequence because prior user-tag support is 77.44%."
+    },
+    {
+      "citation_id": "lit-22020792e6c7fdc3",
+      "title": "DCN V2: Improved Deep and Cross Network and Practical Lessons for Web-scale Learning to Rank Systems",
+      "authors": [
+        "Ruoxi Wang",
+        "Rakesh Shivanna",
+        "Derek Z. Cheng",
+        "Sagar Jain",
+        "Dong Lin",
+        "Lichan Hong",
+        "Ed H. Chi"
+      ],
+      "year": 2021,
+      "url": "https://arxiv.org/abs/2008.13535",
+      "technique": "Learn explicit bounded-degree feature crosses with matrix or low-rank cross layers.",
+      "data": "Embedded categorical fields and normalized numerical context.",
+      "effect": "Targets both GAUC and nDCG through candidate-context interactions missed by FM.",
+      "cost": "Medium for one or two compact low-rank cross layers.",
+      "risk": "Large full-rank or mixture-of-expert variants exceed the CPU and memory envelope.",
+      "applicability": "A compact DCN residual is already strong locally; stabilization has higher value than architectural expansion."
+    },
+    {
+      "citation_id": "lit-22fcd1781e19b1c2",
+      "title": "Uncovering User Interest from Biased and Noised Watch Time in Video Recommendation",
+      "authors": [
+        "Haiyuan Zhao",
+        "Lei Zhang",
+        "Jun Xu",
+        "Guohao Cai",
+        "Zhenhua Dong",
+        "Ji-Rong Wen"
+      ],
+      "year": 2023,
+      "url": "https://arxiv.org/abs/2308.08120",
+      "technique": "D2Co models duration-conditioned watch-time mixtures and smooths correction parameters across nearby duration cohorts.",
+      "data": "Training watch time, duration, and optional engagement feedback for component diagnosis.",
+      "effect": "Targets GAUC and performance consistency across duration segments.",
+      "cost": "Medium if duration is quantized before fitting small mixture models.",
+      "risk": "Per-duration mixture fitting is fragile and more complex than D2Q or the existing RAD-style head.",
+      "applicability": "KuaiRand engagement outcomes can diagnose components, but only a corrected train-derived scalar may enter learning."
+    },
+    {
+      "citation_id": "lit-2a05417cc61430c4",
+      "title": "Field-weighted Factorization Machines for Click-Through Rate Prediction in Display Advertising",
+      "authors": [
+        "Junwei Pan",
+        "Jian Xu",
+        "Alfonso Lobos Ruiz",
+        "Wenliang Zhao",
+        "Shengjun Pan",
+        "Yu Sun",
+        "Quan Lu"
+      ],
+      "year": 2018,
+      "url": "https://arxiv.org/abs/1806.03514",
+      "technique": "Learn one scalar interaction strength per field pair while retaining one embedding per feature.",
+      "data": "Multi-field categorical user, item, context, and metadata features.",
+      "effect": "Targets personalized interaction quality and therefore primarily GAUC, with possible nDCG lift.",
+      "cost": "Low-to-medium parameter and CPU overhead relative to the rich FM backbone.",
+      "risk": "The prior full FwFM branch regressed; restrict any retry to an evidence-backed field-pair subset.",
+      "applicability": "Tag and duration crosses are plausible because user-tag history support is high while exact repeat-item support is low."
+    },
+    {
+      "citation_id": "lit-3add52a89f7530bb",
+      "title": "Q(D)O-ES: Population-based Quality (Diversity) Optimisation for Post Hoc Ensemble Selection in AutoML",
+      "authors": [
+        "Lennart Oswald Purucker",
+        "Lennart Schneider",
+        "Marie Anastacio",
+        "Joeran Beel",
+        "Bernd Bischl",
+        "Holger Hoos"
+      ],
+      "year": 2023,
+      "url": "https://proceedings.mlr.press/v224/purucker23b.html",
+      "technique": "Maintains a population/archive of strong ensembles while explicitly preserving behavioral diversity, avoiding the single greedy path of standard ensemble selection.",
+      "data": "Evaluated across many heterogeneous prediction libraries with separate validation and test assessment; explicitly examines the interaction between quality, diversity and overfitting. ([proceedings.mlr.press](https://proceedings.mlr.press/v224/purucker23b.html))",
+      "effect": "May find a better GAUC/nDCG@5 trade-off when greedy selection repeatedly chooses near-duplicate models, but gains are less predictable than simple OOF stacking.",
+      "cost": "The paper’s full population search is outside the budget. A tiny archive and tens—not thousands—of candidate evaluations may fit 15 minutes.",
+      "risk": "Diversity optimization enlarges the search space and can overfit validation diversity without improving ranking quality.",
+      "applicability": "Medium. Use only as a second-stage search over a small shortlisted library; prioritize disagreement in top-five item order or per-user pairwise errors, not raw-score distance."
+    },
+    {
+      "citation_id": "lit-45d70438605a8197",
+      "title": "RouteRec: Strict Evaluation of Recommender-Agent Selection and Aggregation",
+      "authors": [
+        "Kaiji Zhou",
+        "Vladimir Kalmykov",
+        "Yue Feng"
+      ],
+      "year": 2026,
+      "url": "https://arxiv.org/abs/2607.09908",
+      "technique": "Uses leakage-free five-fold OOF predictions to compare request-level selection of one recommender with item-level learned aggregation of heterogeneous recommender scores.",
+      "data": "Methodological evidence comes from a strict fixed-candidate recommendation protocol contrasting routing and aggregation under identical OOF controls. ([arxiv.org](https://arxiv.org/abs/2607.09908?utm_source=openai))",
+      "effect": "For KuaiRand, item-level regularized aggregation is more likely to improve nDCG@5 than hard per-user model routing; GAUC may improve through model-specific weights on each candidate.",
+      "cost": "A linear or ridge aggregator over precomputed scores is CPU-friendly. Exclude expensive agent or language-model components under the stated budget.",
+      "risk": "Meta-features can leak interaction labels; hard routing is statistically fragile when each user supplies limited supervision. Distribution shift between folds also destabilizes weights.",
+      "applicability": "High for an OOF stacker. Prefer item-level blending with fold-stable global weights; only add user-segment interactions when adequately regularized."
+    },
+    {
+      "citation_id": "lit-49d2a9d9f62eb50a",
+      "title": "Deep & Cross Network for Ad Click Predictions",
+      "authors": [
+        "Ruoxi Wang",
+        "Bin Fu",
+        "Gang Fu",
+        "Mingliang Wang"
+      ],
+      "year": 2017,
+      "url": "https://arxiv.org/abs/1708.05123",
+      "technique": "The original DCN combines a cross network with an MLP. Each cross layer explicitly raises the maximum interaction degree by one while using a rank-constrained parameterization and residual connection. ([arxiv.org](https://arxiv.org/abs/1708.05123))",
+      "data": "Evidence includes sparse advertising CTR and dense classification tasks; the paper studies explicit bounded-degree crosses and memory efficiency, but not listwise recommendation metrics.",
+      "effect": "May improve GAUC and nDCG@5 when low-degree user–item–context conjunctions matter. Expected gains are smaller than DCN-V2 when interaction patterns require multiple independent projections.",
+      "cost": "Moderate but feasible with one or two cross layers and a very small MLP. Cross-layer cost is linear in concatenated embedding width; embedding tables remain the main RAM expense.",
+      "risk": "The original cross layer has restricted expressiveness. Extra depth can introduce unnecessary interactions, while the MLP increases runtime and tuning variance under a short trial.",
+      "applicability": "Useful as a lightweight bridge between FwFM and DCN-V2, especially if FwFM underfits. Keep the input width small and compare against FwFM before adding depth."
+    },
+    {
+      "citation_id": "lit-5b27423d555ad967",
+      "title": "Ensemble Selection from Libraries of Models",
+      "authors": [
+        "Rich Caruana",
+        "Alexandru Niculescu-Mizil",
+        "Geoff Crew",
+        "Alex Ksikes"
+      ],
+      "year": 2004,
+      "url": "https://dl.acm.org/doi/10.1145/1015330.1015432",
+      "technique": "Original greedy ensemble selection: repeatedly add the candidate whose inclusion best improves a validation metric; repeated selection implicitly learns nonnegative weights. For KuaiRand, use leakage-free out-of-fold scores and optimize GAUC, nDCG@5, or a weighted combination directly.",
+      "data": "Evaluated with heterogeneous model libraries and multiple target metrics; establishes metric-specific post-hoc selection rather than score averaging. ([proceedings.mlr.press](https://proceedings.mlr.press/v18/balakrishnan12a/balakrishnan12a.pdf))",
+      "effect": "Expected small-to-moderate gain when base rankers have complementary errors; direct nDCG@5 selection can improve top-five ordering more than probability blending.",
+      "cost": "Very low after OOF predictions exist; practical within 15 minutes for roughly 5–30 models using streamed user groups.",
+      "risk": "Repeated validation decisions overfit, especially with many correlated candidates. Fold averaging, shallow selection and a minimum-improvement threshold are important.",
+      "applicability": "High. Use user- or time-aware folds, rank/quantile-normalize each model, and retain only models that improve both fold stability and the target metric."
+    },
+    {
+      "citation_id": "lit-5fb49f5717b768ba",
+      "title": "Learning to Rank with Non-Smooth Cost Functions (LambdaRank)",
+      "authors": [
+        "Chris J. C. Burges",
+        "Robert Ragno",
+        "Quoc V. Le"
+      ],
+      "year": 2007,
+      "url": "https://www.microsoft.com/en-us/research/publication/learning-to-rank-with-non-smooth-cost-functions/",
+      "technique": "Scales RankNet pair gradients by the ranking-metric change caused by swapping the pair, concentrating updates on consequential positions. ([microsoft.com](https://www.microsoft.com/en-us/research/publication/learning-to-rank-with-non-smooth-cost-functions/?utm_source=openai))",
+      "data": "Provides an implicit-cost analysis and ranking experiments; evidence is from information retrieval rather than recommendation.",
+      "effect": "Directly targeting ΔnDCG@5 should improve top-five ordering more than plain RankNet. GAUC may be neutral or decline if low-ranked pairs receive little weight.",
+      "cost": "Sorting plus pair-delta computation; worst-case O(m²) per list. Feasible for short reranking slates, especially when pairs irrelevant to the cutoff are omitted.",
+      "risk": "Metric weights can be unstable with noisy labels or near-tied scores. Strong cutoff focus may damage global pairwise ordering and GAUC.",
+      "applicability": "High for KuaiRand reranking: use user/request lists and nDCG@5 swap weights. Retain a small RankNet term when GAUC is co-primary."
+    },
+    {
+      "citation_id": "lit-5fba189a0c7d9ee8",
+      "title": "DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems",
+      "authors": [
+        "Ruoxi Wang",
+        "Rakesh Shivanna",
+        "Derek Z. Cheng",
+        "Sagar Jain",
+        "Dong Lin",
+        "Lichan Hong",
+        "Ed H. Chi"
+      ],
+      "year": 2020,
+      "url": "https://arxiv.org/abs/2008.13535",
+      "technique": "DCN-V2 replaces DCN's vector cross parameter with a matrix, enabling richer explicit interactions through stacked or parallel cross/deep branches. Its low-rank and mixture-of-experts variants trade expressiveness for efficiency; L cross layers represent interactions through degree L+1. ([arxiv.org](https://arxiv.org/abs/2008.13535))",
+      "data": "Evidence spans synthetic polynomial interaction tests, public CTR/recommendation data, ablations, and first-party production learning-to-rank deployments. No direct KuaiRand or nDCG@5 evaluation is provided.",
+      "effect": "Highest potential GAUC and nDCG@5 lift of these methods when KuaiRand relevance depends on higher-order user–video–author–context crosses. Under the stated compute limit, realized gains may be small unless the low-rank form converges quickly.",
+      "cost": "Full-rank layers scale quadratically with input width and are unsuitable here. A one- or two-layer low-rank model with a tiny deep branch is plausible; a multi-expert mixture is risky within 3 GB RAM and 15 minutes.",
+      "risk": "Greater overfitting and tuning sensitivity than FwFM; full-rank matrices or multiple experts can exceed the budget. Pointwise loss may improve calibration without improving top-five ordering.",
+      "applicability": "Medium for the initial CPU trial, high for later scaling. Use low-rank cross layers, narrow embeddings, and a ranking-aligned loss or user-grouped sampling when nDCG@5 is the primary target."
+    },
+    {
+      "citation_id": "lit-666a95bc8b5deb91",
+      "title": "Learning to Rank using Gradient Descent (RankNet)",
+      "authors": [
+        "Chris J. C. Burges",
+        "Tal Shaked",
+        "Erin Renshaw",
+        "Ari Lazier",
+        "Matt Deeds",
+        "Nicole Hamilton",
+        "Greg Hullender"
+      ],
+      "year": 2005,
+      "url": "https://www.microsoft.com/en-us/research/publication/learning-to-rank-using-gradient-descent/",
+      "technique": "Pairwise logistic cross-entropy learns score differences between preferred and non-preferred items. ([microsoft.com](https://www.microsoft.com/en-us/research/publication/learning-to-rank-using-gradient-descent/?utm_source=openai))",
+      "data": "Evidence includes derivation plus experiments on query-grouped commercial search lists; no KuaiRand validation.",
+      "effect": "Strong alignment with GAUC when pairs are positive-versus-negative within each user group; only indirect improvement to nDCG@5 because all sampled pairs receive similar importance.",
+      "cost": "All-pairs training is O(m²) per candidate list. Pair sampling with a linear or tiny MLP scorer should fit four CPU threads, 3 GB RAM and a 15-minute trial.",
+      "risk": "Pair explosion, noisy ties, exposure bias and poor top-five emphasis. Uniform pair sampling can optimize GAUC while barely moving nDCG@5.",
+      "applicability": "Good inexpensive baseline and useful auxiliary loss. Group pairs by user/request; combine with a cutoff-aware loss if nDCG@5 is important."
+    },
+    {
+      "citation_id": "lit-70a74a9cf701ea93",
+      "title": "BPR: Bayesian Personalized Ranking from Implicit Feedback",
+      "authors": [
+        "Steffen Rendle",
+        "Christoph Freudenthaler",
+        "Zeno Gantner",
+        "Lars Schmidt-Thieme"
+      ],
+      "year": 2009,
+      "url": "https://arxiv.org/abs/1205.2618",
+      "technique": "Within each user group, applies a logistic pairwise loss so an observed item outranks a sampled unobserved item.",
+      "data": "Binary implicit interactions; requires user-level positive sets and negative sampling. Evidence includes a Bayesian derivation and applications to MF and kNN.",
+      "effect": "Expected to improve GAUC strongly because it learns within-user positive-versus-negative ordering; nDCG@5 gains are less direct because all sampled pairs receive similar importance.",
+      "cost": "Low: linear in sampled pairs and embedding dimension. MF-BPR is the safest fit for four CPU threads, 3 GB RAM and a 15-minute trial.",
+      "risk": "Unobserved items may be false negatives; uniform negatives can be too easy. The loss does not emphasize rank positions 1–5.",
+      "applicability": "Best baseline for KuaiRand GAUC. Sample pairs strictly within user, balance users rather than interactions, and consider moderately hard negatives."
+    },
+    {
+      "citation_id": "lit-7602d7fcb5685a0a",
+      "title": "Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts",
+      "authors": [
+        "Jiaqi Ma",
+        "Zhe Zhao",
+        "Xinyang Yi",
+        "Jilin Chen",
+        "Lichan Hong",
+        "Ed H. Chi"
+      ],
+      "year": 2018,
+      "url": "https://arxiv.org/abs/1801.06514",
+      "technique": "Foundational MMoE: shared dense experts are combined by separate learned gates for each prediction task. This is probably the original paper behind the query, although its gates are task-specific rather than segment-specific.",
+      "data": "Evidence comprises controlled synthetic task-relatedness experiments and a large-scale recommendation application with multiple objectives.",
+      "effect": "Likely improves GAUC when objectives or user segments need different representations while retaining useful sharing. nDCG@5 gains are indirect unless training adds ranking-aware weighting or loss.",
+      "cost": "Moderate. All experts execute for every example; a CPU trial should use 2–4 experts with narrow MLPs. Compatible with 3 GB RAM and potentially a 15-minute trial.",
+      "risk": "Expert redundancy, gate collapse, and negative transfer. Treating sparse segments as separate tasks can overfit or produce unstable GAUC estimates.",
+      "applicability": "Strong baseline for KuaiRand. Feed segment/context embeddings into each gate, but retain one ranking target unless segment sample sizes are large."
+    },
+    {
+      "citation_id": "lit-814cd698b03b09f0",
+      "title": "VBPR: Visual Bayesian Personalized Ranking from Implicit Feedback",
+      "authors": [
+        "Ruining He",
+        "Julian McAuley"
+      ],
+      "year": 2016,
+      "url": "https://arxiv.org/abs/1510.01784",
+      "technique": "Extends BPR matrix factorization with user-specific preferences over a learned projection of pretrained item-content vectors. ([arxiv.org](https://arxiv.org/abs/1510.01784))",
+      "data": "The paper studies implicit interactions, large real-world collections, personalized ranking, and cold-start behavior using fixed visual descriptors.",
+      "effect": "Expected GAUC and nDCG@5 gains mainly when dense video/content vectors capture attributes users consistently prefer, especially for new items.",
+      "cost": "Medium with precomputed vectors; infeasible for the trial budget if feature extraction must also be performed. Reduce projection rank aggressively.",
+      "risk": "Weak or domain-mismatched content embeddings add noise; the original method is visual-specific and does not address exposure confounding.",
+      "applicability": "Conditional KuaiRand option if compact pretrained video/image descriptors already exist. Otherwise sparse metadata models are more practical."
+    },
+    {
+      "citation_id": "lit-829c3c8bd690f623",
+      "title": "Heterogeneous Ranking in Industrial-Scale Recommender Systems: A Case Study",
+      "authors": [
+        "Di Bai",
+        "Jintao Liu",
+        "Zhenwei Tang",
+        "Peifan Wu",
+        "Nada Al-Thawr",
+        "Luoshu Wang"
+      ],
+      "year": 2026,
+      "url": "https://arxiv.org/abs/2607.27577",
+      "technique": "HA-MoE injects explicit heterogeneity or segment context into both gates and expert representations, directly targeting specialization and majority bias in heterogeneous ranking.",
+      "data": "Evidence includes industrial offline evaluation, specialization diagnostics, and online A/B testing in a heterogeneous feed. ([arxiv.org](https://arxiv.org/abs/2607.27577?utm_source=openai))",
+      "effect": "Closest direct match for segment-aware GAUC optimization. Expected nDCG@5 benefit is strongest when segment context changes top-item ordering rather than merely click calibration.",
+      "cost": "Moderate to high as published. A feasible CPU approximation is 2–3 narrow experts, one small segment-conditioned gate, and no elaborate diagnostic machinery.",
+      "risk": "Recent industrial case study with limited direct transfer evidence for KuaiRand. Experts may simply memorize segment frequency; noisy segment labels can worsen ranking.",
+      "applicability": "Most literal architectural match. Test after MMoE, using coarse, sufficiently populated segments and reporting both overall and per-segment GAUC plus nDCG@5."
+    },
+    {
+      "citation_id": "lit-87884f76f5a84a1d",
+      "title": "Combining Predictors for Recommending Music: the False Positives’ Approach to KDD Cup Track 2",
+      "authors": [
+        "Suhrid Balakrishnan",
+        "Rensheng Wang",
+        "Carlos Scheidegger",
+        "Angus MacLellan",
+        "Yifan Hu",
+        "Aaron Archer",
+        "Shankar Krishnan",
+        "David Applegate",
+        "Guang Qin Ma",
+        "S. Tom Au"
+      ],
+      "year": 2012,
+      "url": "https://proceedings.mlr.press/v18/balakrishnan12a/balakrishnan12a.pdf",
+      "technique": "Combines heterogeneous collaborative-filtering, classification and ranking models. Greedy ensemble selection operates on each model’s per-user item ranks rather than incompatible raw scores, then projects the result to the required list structure.",
+      "data": "Direct recommender-ranking evidence using a large sparse music task; the paper explicitly studies diverse component models, validation-based selection and per-user rank aggregation. ([proceedings.mlr.press](https://proceedings.mlr.press/v18/balakrishnan12a/balakrishnan12a.pdf))",
+      "effect": "Rank normalization should help nDCG@5 when base-score calibration differs. GAUC benefits when models disagree usefully on within-user positive–negative ordering.",
+      "cost": "Ensemble fitting is lightweight; prediction storage dominates. Stream by user or retain compact ranks to stay below 3 GB.",
+      "risk": "The authors identify late-stage validation overfitting. Rank conversion also discards confidence margins that may matter for GAUC.",
+      "applicability": "Very high. Closest established template: create KuaiRand OOF predictions, convert scores to within-user percentile ranks, and greedily blend against a GAUC/nDCG@5 objective."
+    },
+    {
+      "citation_id": "lit-9b8cc78dec05e06e",
+      "title": "Metadata Embeddings for User and Item Cold-start Recommendations",
+      "authors": [
+        "Maciej Kula"
+      ],
+      "year": 2015,
+      "url": "https://arxiv.org/abs/1507.08439",
+      "technique": "Hybrid matrix factorization: user/item vectors are sums of learned metadata-feature embeddings, trained with a sampled ranking loss such as WARP. ([arxiv.org](https://arxiv.org/abs/1507.08439))",
+      "data": "Evaluated under explicit cold-start, sparse-interaction, and warm regimes using user and item metadata.",
+      "effect": "Expected strongest improvement for cold/rare items. WARP is relatively aligned with nDCG@5; GAUC should improve when metadata predicts pairwise preference.",
+      "cost": "Low. Sparse features and 16–32-dimensional embeddings should permit a useful four-CPU, 15-minute trial.",
+      "risk": "No benefit for unseen feature values; noisy metadata can overwhelm collaborative signals. WARP sampling may become expensive late in training.",
+      "applicability": "Best first trial for KuaiRand: encode item content fields and optional user attributes as sparse features. Validate with chronological cold-item splits, not random interaction splits."
+    },
+    {
+      "citation_id": "lit-b872f963089a23b0",
+      "title": "Learning to Rank with Non-Smooth Cost Functions",
+      "authors": [
+        "Christopher J. C. Burges",
+        "Robert Ragno",
+        "Quoc Viet Le"
+      ],
+      "year": 2007,
+      "url": "https://www.microsoft.com/en-us/research/publication/learning-to-rank-with-non-smooth-cost-functions/",
+      "technique": "Introduces LambdaRank: pairwise gradients are weighted by the target-metric change caused by swapping two items. Treat each user as a ranking group and use delta-nDCG@5 weights.",
+      "data": "Requires grouped candidate lists with binary or graded labels. The paper derives an implicit objective for otherwise non-differentiable ranking metrics.",
+      "effect": "Most directly aligned with nDCG@5; may also improve GAUC, although top-weighted updates can sacrifice some global pairwise consistency.",
+      "cost": "Medium. Enumerating every within-group pair is quadratic; restrict updates to positive-negative pairs and top-ranked candidates for a CPU trial.",
+      "risk": "Large groups cause pair explosion. Sparse groups or users without both label classes provide little signal; aggressive top-5 truncation can overfit noisy positives.",
+      "applicability": "Preferred objective when nDCG@5 is primary. A blend with unweighted BPR-style pair loss is safer when GAUC and nDCG@5 are jointly scored."
+    },
+    {
+      "citation_id": "lit-c2e0e5927c772e3d",
+      "title": "Ensemble Selection from Libraries of Models",
+      "authors": [
+        "Rich Caruana",
+        "Alexandru Niculescu-Mizil",
+        "Geoff Crew",
+        "Alex Ksikes"
+      ],
+      "year": 2004,
+      "url": "https://www.cs.cornell.edu/~caruana/ctp/ct.papers/caruana.icml04.icdm06long.pdf",
+      "technique": "Greedily add diverse models according to held-out metric improvement while limiting selection overfit.",
+      "data": "Leakage-safe out-of-fold predictions from diverse model families.",
+      "effect": "Can balance GAUC and nDCG when component errors are complementary.",
+      "cost": "Low for blending after expensive component predictions already exist.",
+      "risk": "Public-validation weight search overfits; use coarse preregistered weights and an internal chronological holdout.",
+      "applicability": "Restrict to two or three self-generated, decorrelated exits and regenerate them inside the final candidate."
+    },
+    {
+      "citation_id": "lit-c42f9f1d3f630c32",
+      "title": "The LambdaLoss Framework for Ranking Metric Optimization",
+      "authors": [
+        "Xuanhui Wang",
+        "Cheng Li",
+        "Nadav Golbandi",
+        "Michael Bendersky",
+        "Marc Najork"
+      ],
+      "year": 2018,
+      "url": "https://research.google/pubs/the-lambdaloss-framework-for-ranking-metric-optimization/",
+      "technique": "Weight probabilistic pair losses by their effect on a target ranking metric such as nDCG.",
+      "data": "User groups, binary relevance labels, candidate scores, and observed within-user positive-negative pairs.",
+      "effect": "A Lambda@5 term directly targets nDCG@5 while a dominant BCE term preserves GAUC.",
+      "cost": "Medium with capped pairs per user and vectorized batches.",
+      "risk": "Pairwise-only fine-tuning already regressed; keep the ranking loss small and in the same update as BCE.",
+      "applicability": "Use user_id as the query and only observed short-view impressions as negatives."
+    },
+    {
+      "citation_id": "lit-e6f725a5b31ec242",
+      "title": "Deconfounding Duration Bias in Watch-time Prediction for Video Recommendation",
+      "authors": [
+        "Ruohan Zhan",
+        "Changhua Pei",
+        "Qiang Su",
+        "Jianfeng Wen",
+        "Xueliang Wang",
+        "Guanyu Mu",
+        "Dong Zheng",
+        "Peng Jiang"
+      ],
+      "year": 2022,
+      "url": "https://arxiv.org/abs/2206.06003",
+      "technique": "D2Q converts watch time to a train-fitted within-duration-group empirical quantile target.",
+      "data": "Training play time, duration, and ordinary serving-time features.",
+      "effect": "A cleaner duration-relative interest auxiliary is expected to help GAUC and duration-segment stability.",
+      "cost": "Low when quantile labels are cached and predicted by a tiny shared auxiliary head.",
+      "risk": "Published watch-time objectives do not directly guarantee binary long-view GAUC or nDCG gains.",
+      "applicability": "The schema has training play_time_ms and serving-time duration_ms; no validation outcome is required."
+    },
+    {
+      "citation_id": "lit-ee1cf5839169e11f",
+      "title": "LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation",
+      "authors": [
+        "Xiangnan He",
+        "Kuan Deng",
+        "Xiang Wang",
+        "Yan Li",
+        "Yongdong Zhang",
+        "Meng Wang"
+      ],
+      "year": 2020,
+      "url": "https://arxiv.org/abs/2002.02126",
+      "technique": "Propagate and average user-item embeddings over a normalized implicit-feedback graph without feature transforms.",
+      "data": "A train-only user-item positive graph and observed or sampled ranking pairs.",
+      "effect": "Primarily targets warm-user and warm-item GAUC.",
+      "cost": "High under the current CPU envelope even with shallow propagation.",
+      "risk": "Sparse repeat-video support and a prior timeout/weak repair make this a low-priority diversity branch.",
+      "applicability": "Only reconsider as a shallow residual if diagnostics show collaborative signal beyond the strong tag history."
+    }
+  ],
+  "query_cache": {
+    "177d3f48e2c6b7eb99af14f3d0ae4a1f9d999bc62cfe7fc0cd72a1523b877958": {
+      "query": "content feature cold-start implicit-feedback recommendation original paper",
+      "query_sha256": "177d3f48e2c6b7eb99af14f3d0ae4a1f9d999bc62cfe7fc0cd72a1523b877958",
+      "citation_ids": [
+        "lit-9b8cc78dec05e06e",
+        "lit-167eed9c40b6580e",
+        "lit-814cd698b03b09f0",
+        "lit-1523841d025e0e9f"
+      ],
+      "response_sha256": "226e091e22d35cc967c50a68e38a9402d19cb35930788e68cc65c2fe8e4bc2c2"
+    },
+    "3bffe09065c9ee112e85a232b015009fa3f31fc97dccb804a03ff7d72a4ef71f": {
+      "query": "group-aware implicit-feedback recommendation ranking objective original paper",
+      "query_sha256": "3bffe09065c9ee112e85a232b015009fa3f31fc97dccb804a03ff7d72a4ef71f",
+      "citation_ids": [
+        "lit-70a74a9cf701ea93",
+        "lit-b872f963089a23b0",
+        "lit-0ee735fb09d5243d"
+      ],
+      "response_sha256": "6cd1aaacd8f1db2a30ccd51d7d231074ad60b57bb12ac8e065cdd6ca50f8a187"
+    },
+    "453a817652d9f62df1fbd24c0c9bbedce27e1bb612fb1063c5878a11432b7e82": {
+      "query": "Deep Interest Network candidate-aware user history recommendation original paper",
+      "query_sha256": "453a817652d9f62df1fbd24c0c9bbedce27e1bb612fb1063c5878a11432b7e82",
+      "citation_ids": [],
+      "response_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "459f1b7014dc065e17527b225844d3bc47408a47e2ee5048994403a772311b71": {
+      "query": "field-weighted factorization machine DCN-V2 feature interaction original paper",
+      "query_sha256": "459f1b7014dc065e17527b225844d3bc47408a47e2ee5048994403a772311b71",
+      "citation_ids": [
+        "lit-49d2a9d9f62eb50a",
+        "lit-5fba189a0c7d9ee8"
+      ],
+      "response_sha256": "6cab71770da11ad014bb4e2f6c1d1c509f4da52459a5b25bc27111a2d96e3877"
+    },
+    "6f47518100cc7050acb9350c790f1f13ecca2f4180953cfb22ff6ecc570a4098": {
+      "query": "out-of-fold diverse recommender ensemble ranking original paper",
+      "query_sha256": "6f47518100cc7050acb9350c790f1f13ecca2f4180953cfb22ff6ecc570a4098",
+      "citation_ids": [
+        "lit-5b27423d555ad967",
+        "lit-87884f76f5a84a1d",
+        "lit-45d70438605a8197",
+        "lit-3add52a89f7530bb"
+      ],
+      "response_sha256": "34526f047d06252da044c2c6edf6679e9ced2b155b21cf4e8f4adfa51a6e11f1"
+    },
+    "750c7eafb5aad63eaaafbafc0489a5bcfe14e0a472e4eeff388e7fc9576f615f": {
+      "query": "LambdaLoss RankNet top-k recommender reranking original paper",
+      "query_sha256": "750c7eafb5aad63eaaafbafc0489a5bcfe14e0a472e4eeff388e7fc9576f615f",
+      "citation_ids": [
+        "lit-666a95bc8b5deb91",
+        "lit-5fb49f5717b768ba",
+        "lit-0eceb75a4709813d"
+      ],
+      "response_sha256": "c829b65cd80a1ba90f850a8334b808765226b493414699f72674c7ad1b054cb1"
+    },
+    "987cea8390fe04652e353e54f85ccfe897c801d4e5849edb5218f9136807238a": {
+      "query": "segment gated mixture of experts recommender ranking original paper",
+      "query_sha256": "987cea8390fe04652e353e54f85ccfe897c801d4e5849edb5218f9136807238a",
+      "citation_ids": [
+        "lit-7602d7fcb5685a0a",
+        "lit-1adf1d48a5c71603",
+        "lit-829c3c8bd690f623"
+      ],
+      "response_sha256": "6939cd1854cd4583c7e2ea0a589cf5da0e821b37ed584b34de233d8d961f7328"
+    },
+    "b0a900439ec69440451227d4c1ef1e2a43eec7dfe755fa28e7f2bbc437ce064f": {
+      "query": "duration debiasing watch-time recommendation D2Q CWM original paper",
+      "query_sha256": "b0a900439ec69440451227d4c1ef1e2a43eec7dfe755fa28e7f2bbc437ce064f",
+      "citation_ids": [],
+      "response_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  },
+  "notes_sha256": "25ef2ea5fadfea4b386cca3eb057668ece10422b4d5d423ce82c848300cdb598",
+  "cache_sha256": "44362c13097bc6aa7d10d0c567c7a0c35d5c343ef66a814cc0f1466b45d87356",
+  "manifest_sha256": "547264c4d012f1b6f34896772f3958008c501d5c92876927b934b999020c154e"
+}

@@ -27,11 +27,16 @@ def configure_cost_tracking(
     input_usd_per_million: float,
     output_usd_per_million: float,
     notification_step_usd: float = 10.0,
+    web_search_usd_per_call: float = 0.01,
 ) -> None:
     """Persist cumulative API cost after every completed request."""
 
     global _cost_tracking
-    if min(input_usd_per_million, output_usd_per_million) < 0:
+    if min(
+        input_usd_per_million,
+        output_usd_per_million,
+        web_search_usd_per_call,
+    ) < 0:
         raise ValueError("Token prices must be non-negative")
     if notification_step_usd <= 0:
         raise ValueError("notification_step_usd must be positive")
@@ -39,17 +44,26 @@ def configure_cost_tracking(
         "path": Path(path),
         "input_rate": float(input_usd_per_million),
         "output_rate": float(output_usd_per_million),
+        "web_search_rate": float(web_search_usd_per_call),
         "notification_step": float(notification_step_usd),
     }
 
 
-def _record_cost_event(model: str, input_tokens: int, output_tokens: int) -> dict:
+def _record_cost_event(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    web_search_calls: int = 0,
+) -> dict:
     if _cost_tracking is None:
         return {}
     request_cost = (
         input_tokens * _cost_tracking["input_rate"]
         + output_tokens * _cost_tracking["output_rate"]
     ) / 1_000_000
+    tool_cost = int(web_search_calls) * _cost_tracking["web_search_rate"]
+    request_cost += tool_cost
     path = _cost_tracking["path"]
     with _cost_lock:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +75,7 @@ def _record_cost_event(model: str, input_tokens: int, output_tokens: int) -> dic
                 "total_input_tokens": 0,
                 "total_output_tokens": 0,
                 "total_requests": 0,
+                "total_web_search_calls": 0,
                 "events": [],
             }
         previous = float(state.get("total_estimated_cost_usd", 0.0))
@@ -77,6 +92,8 @@ def _record_cost_event(model: str, input_tokens: int, output_tokens: int) -> dic
             "model": model,
             "input_tokens": int(input_tokens),
             "output_tokens": int(output_tokens),
+            "web_search_calls": int(web_search_calls),
+            "web_search_cost_usd": tool_cost,
             "estimated_cost_usd": request_cost,
             "cumulative_estimated_cost_usd": current,
             "crossed_notification_thresholds_usd": crossed,
@@ -89,6 +106,9 @@ def _record_cost_event(model: str, input_tokens: int, output_tokens: int) -> dic
             output_tokens
         )
         state["total_requests"] = int(state.get("total_requests", 0)) + 1
+        state["total_web_search_calls"] = int(
+            state.get("total_web_search_calls", 0)
+        ) + int(web_search_calls)
         state["next_notification_usd"] = (int(current // step) + 1) * step
         state.setdefault("events", []).append(event)
         temporary = path.with_suffix(path.suffix + ".tmp")
@@ -227,6 +247,11 @@ def query(
         by_model["input_tokens"] += int(in_tok_count)
         by_model["output_tokens"] += int(out_tok_count)
 
-    _record_cost_event(model, int(in_tok_count), int(out_tok_count))
+    _record_cost_event(
+        model,
+        int(in_tok_count),
+        int(out_tok_count),
+        web_search_calls=int(info.get("web_search_calls", 0) or 0),
+    )
 
     return output

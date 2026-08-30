@@ -1,6 +1,6 @@
 # Autonomous KuaiRand Recommender Research: Status and Handoff
 
-Last audited: 2026-08-30 (Asia/Singapore), after the GPT-5.6 Sol v23 smoke and v24 six-iteration development dry-run. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
+Last audited: 2026-08-30 (Asia/Singapore), after the uncapped GPT-5.6 Sol v26 development campaign. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
 
 ## Current verdict
 
@@ -10,10 +10,11 @@ Neither result is a fresh frozen-prompt clean-run acceptance. Under the pre-rese
 
 The durable API tracker at [`challenge/private/api_spend.json`](../challenge/private/api_spend.json) reports exactly:
 
-- cumulative estimated cost: **`$10.243473`**;
-- requests: `96`;
-- input tokens: `951212`;
-- output tokens: `502675`;
+- cumulative estimated cost: **`$14.596905`**;
+- requests: `112`;
+- input tokens: `1343130`;
+- output tokens: `621963`;
+- billed web-search calls: `40`;
 - next notification boundary: `$20`.
 
 This tracker is machine-private and ignored by Git. The amount above was read from the tracker, not reconstructed from conversation history.
@@ -40,6 +41,14 @@ The audit found that v21 forced two near-duplicate wholesale rich-FM replacement
 The v22 smoke (`techjam-aide-v22-sol-smoke`) spent `$0.371544` over two requests and produced no evaluated generated candidate. Its first card was valid and parent-preserving, but the code passed a CSR one-hot matrix to the organizer `baseline.FM` integer-index API and failed with `IndexError` after five seconds. GPT-5.6 Sol's second response correctly diagnosed the representation bug, but rephrased the locked scientific metadata and was rejected before compute. V23 now publishes the dense-integer organizer API contract, gives debug prompts the exact locked card values to copy verbatim, validates hypothesis and change scope as well as family/change, and freezes both v22 failures into experiment memory hash `7441d07d95782c585266441d14891eadd2caf99071a0c1478b85639afc977ddc`.
 
 The v23 smoke (`techjam-aide-v23-sol-smoke`) spent `$0.393064` over two requests and completed with zero manual interventions. Its first AIDE-generated rich-FM node (`8e7f3fe7d59d4d148c34937032602d4c`) scored GAUC `0.6670841339220689`, nDCG@5 `0.5359480054028259`, primary `0.6015160696624474`: a primary gain of `0.0000473133094884` over the organizer FM, with nDCG improving by `0.0001431248579721` but GAUC regressing by `0.0000484982389954`. The second history-residual node (`5b39a9ae0baf41358e4e0ea42c04211f`) correctly disabled its user-primary-tag posterior residual after the internal parent gate failed and reproduced the first node exactly. This validates non-regressive autonomous fallback, but neither node passes the both-component champion gate. Independent audit found that both programs used a date-only internal split with `695` rows misplaced relative to the canonical strict timestamp boundary. V24 now requires and asserts boundary `1650295266482`, prefix rows `1079102`, and holdout rows `62010`. It also reserves the two newest evaluated descendants in experiment-memory selection and compacts all 16 selected summaries into the actual prompt, preventing the next paid run from omitting the v23 tradeoff/fallback. The corrected memory hash is `1d069625f4c483484cad76a37699d636572d81bbbdc7915a6a55f5eee6e5131e`; the v24 six-iteration development prompt hash is `6035c5eccecdba4801976b345b7967579dcfeb67f89f20f104ee7a632f28a9d4`.
+
+The v24 development campaign (`techjam-aide-v24-sol-dev`) ran for `2707.82` seconds with zero interventions, five GPT-5.6 Sol calls, and `$0.910904` incremental spend. It stopped by convergence after six total iterations including the organizer seed. The seed reproduced GAUC `0.6671326321610643`, nDCG@5 `0.5358048805448538`, primary `0.601468756352959`. The repaired rich-FM node scored `0.66566383404802`, `0.534989796280027`, `0.600326815164023`; the history and repaired D2Q-duration nodes both scored `0.665796970825283`, `0.535427125974929`, `0.600612048400106`. No candidate beat the organizer or champion.
+
+Audit showed that the rich internal control incorrectly dropped organizer fields, while history and D2Q rejected their mechanisms and then refit a parent-like FM for six epochs instead of retaining the exact epoch-7 organizer anchor. V25 makes the trusted reviewer own internal rejection: every candidate writes a machine-readable change decision, and `accepted_change=false` retains the exact nearest metric-bearing parent. Repairs are compared with that ancestor, false changes are recorded as falsified, failures count toward convergence patience, debug chains count as one scientific attempt, and development scheduling consumes frozen cross-campaign family evidence. It also publishes the organizer field/training contract and the two dtype/interface facts that caused v24's avoidable failures. V25 memory hash is `5be4ec071879870d428794b8c81e6a7fe6b701df5d95a363a768739430d0f199`; smoke prompt hash is `47143a12d9a260dedf52d945ecde45ad4b4d2631d3841249c81ea65d49db8d64`; scheduler hash is `b6afb166749c025712fa5d0a14baccc0cd8858898bd4f52fa8918d6ea671c9cd`.
+
+V26 removes API-cost ceilings, uses GPT-5.6 Sol `xhigh` for candidates and `high` for research/repairs, adds a development-only Responses API web-search scout, and keeps candidate execution offline. The scheduler now maintains balanced, GAUC-specialist, nDCG-specialist, diversity, and combiner archives with role-specific retention gates. It also rewards historical AIDE-generated above-champion evidence strongly enough to revisit and robustify it; this corrects the first-campaign behavior where novelty penalties hid the strongest prior RAD/history evidence.
+
+The first uncapped campaign, `techjam-aide-v26-dev-001`, completed with zero interventions and `$3.442528` incremental spend. Eight bounded research queries produced 19 sanitized citation notes. The organizer root reproduced `0.6671326321610643 / 0.5358048805448538 / 0.601468756352959`. A DCN-V2 diversity residual was rejected internally and fell back exactly; a BCE+RankNet GAUC specialist passed its internal gate but regressed externally to `0.6667755694543843 / 0.5355739630789982 / 0.6011747662666913`; and a LightGCN diversity residual was rejected internally. The campaign stopped after the authoritative three non-improvements. These failures are preserved in experiment memory, including the internal/external mismatch that now triggers robust multi-fold selection guidance.
 
 ## Competition objective and official constraints
 
@@ -78,20 +87,22 @@ This repository wraps that generic mechanism in a KuaiRand-specific research pro
 - the organizer FM is executed locally as the immutable root before any paid iteration;
 - all draft, improve, and debug prompts receive the benchmark description, exact schema, data overview, installed environment, resource limits, prediction contract, experiment memory, and a scheduler assignment;
 - candidates must return a structured candidate card before their complete Python program;
-- a portfolio scheduler tracks model-family attempts/successes, failure/repeat penalties, expected signal priors, and required rich-FM -> DCN -> history -> duration lineage;
+- a portfolio scheduler tracks role archives, model-family evidence, failures, robust prior breakthroughs, metric gaps, runtime, diversity, and compatible non-root lineage without forcing one fixed solution order;
 - generated predictions are scored by the organizer-compatible deterministic evaluator, not by an LLM reviewer;
 - failures are fed back to bounded autonomous debug attempts without changing the scientific family;
 - every trial is recorded with lineage, hashes, metrics, resource/cost data, scheduler decisions, and recovery state;
 - untrusted candidate code runs in a restricted local process with no network and no child-process creation.
 
-The current v22 scheduler is Pareto-, diversity-, component-, failure-, and API-cost-aware. Hard constraints, factual experiment memory, EDA, literature, and the optional research menu are separate hashed prompt sections.
+The current v26 scheduler is Pareto-, role-, diversity-, component-, failure-, and prior-breakthrough-aware. Hard constraints, factual experiment memory, EDA, sanitized literature, and the optional research menu are separate hashed prompt sections.
 
 ## Repository architecture
 
 | Path | Role |
 |---|---|
 | [`challenge/task.md`](../challenge/task.md) | Benchmark prompt, exact schema/protocol, research memory, model menu, and current prescriptive recipes. |
-| [`challenge/run_aide_research.py`](../challenge/run_aide_research.py) | Campaign runner: dry-run gate, paid budgets, FM root, scheduling, execution, deterministic review, confirmations, manifests, ledgers, summaries, and acceptance. |
+| [`challenge/run_aide_research.py`](../challenge/run_aide_research.py) | Campaign runner: online research refresh, FM root, role scheduling, execution, deterministic review, manifests, ledgers, summaries, and acceptance. |
+| [`challenge/run_uncapped_campaign_loop.py`](../challenge/run_uncapped_campaign_loop.py) | Resumable multi-campaign driver with uncapped spend, plateau logic, experiment-memory refresh, frozen checkpoints, and clean-campaign dispatch. |
+| [`challenge/techjam_recsys/openai_literature.py`](../challenge/techjam_recsys/openai_literature.py) | Development-only Responses web-search adapter with structured primary-source notes and bounded tool calls. |
 | [`challenge/agent_seed.py`](../challenge/agent_seed.py) | Immutable organizer-FM ancestry program used for node zero. |
 | [`challenge/prepare_agent_data.py`](../challenge/prepare_agent_data.py) | Builds the candidate-visible public bundle and the evaluator-only validation index outside candidate input. |
 | [`challenge/techjam_recsys/aide_portfolio.py`](../challenge/techjam_recsys/aide_portfolio.py) | Prompt version, candidate-card parser, source safety checks, family normalization, utility scheduler, and lineage selection. |
@@ -111,11 +122,11 @@ Generated data, private evaluator state, API accounting, and run artifacts live 
 
 ### Benchmark, schema, and environment prompts
 
-`KuaiRandAgent` injects the real row counts, columns, task semantics, serving-time exclusions, chronology rules, prediction contract, four-thread/3-GB/900-second limits, and installed-package versions. Generic `aide/agent.py` now adds environment and data overview to draft, improve, and debug prompts rather than drafts alone. Code output is allowed up to 10,000 tokens per call by default so complete neural candidates are less likely to be truncated.
+`KuaiRandAgent` injects the real row counts, columns, task semantics, serving-time exclusions, chronology rules, prediction contract, four-thread/3-GB/900-second limits, and installed-package versions. Generic `aide/agent.py` adds environment and data overview to draft, improve, and debug prompts rather than drafts alone. Code output is allowed up to 30,000 tokens per call by default so complete neural or ensemble candidates are less likely to be truncated.
 
 ### Structured candidate cards
 
-The response must begin with a `<candidate_spec>` JSON object. The parser persists normalized model family, declared family, features, losses, hyperparameters, runtime estimate, risks, expected metric effects, parse status, and assigned family. These values appear in the experiment ledger instead of every node being labeled generically as `improve`.
+The response must begin with a `<candidate_spec>` JSON object. The parser persists normalized model family, multi-objective role, declared family, features, losses, hyperparameters, runtime estimate, risks, expected metric effects, parse status, and assigned family. These values appear in the experiment ledger instead of every node being labeled generically as `improve`.
 
 The v22 card additionally requires one `change_scope` and a list of `preserved_parent_components`, along with the parent code hash, EDA/literature IDs, exact falsifier, memory estimate, abort criteria, and explicitly targeted metric.
 
@@ -124,8 +135,8 @@ The v22 card additionally requires one `change_scope` and a list of `preserved_p
 The current deterministic scheduler:
 
 - attempts one parent-relative rich-FM milestone before portfolio expansion, allowing one immediate refinement only after both components improve;
-- tracks attempts, parent improvements, parent-dominated results, valid nodes, runtime, cost, diversity, failures, and timeouts per family;
-- combines family priors, exploration, Pareto/component evidence, floor preservation, parent compatibility, and regression/failure/repeat/cost penalties;
+- tracks attempts, role-retained improvements, parent-dominated results, valid nodes, runtime, diversity, failures, and timeouts per family;
+- combines family priors, exploration, Pareto/component evidence, role coverage, floor preservation, prior above-champion evidence, parent compatibility, and bounded regression/failure/repeat penalties;
 - autonomously repairs the most recent debuggable leaf up to the configured depth;
 - chooses a Pareto-compatible parent while allowing evidence-backed family re-entry after cooldown.
 
@@ -149,11 +160,11 @@ These controls are defense in depth, not a formal proof of non-leakage. A final 
 
 ### Runtime and API cost tracking
 
-The runner separately records end-to-end trial latency and interpreter-reported execution time capped at the 900-second trial limit. It enforces a six-hour wall cap, 3-GB resident-memory cap, and descendant cleanup. Paid execution requires `--execute`, explicit current pricing, token ceilings, and a run-dollar ceiling. Cost is appended to the durable private tracker after each completed API response. Notifications occur only at cumulative `$10` multiples.
+The runner separately records end-to-end trial latency and interpreter-reported execution time capped at the 900-second trial limit. It enforces a six-hour wall cap, 3-GB resident-memory cap, and descendant cleanup. Paid execution requires `--execute` and explicit current pricing. Token and run-dollar ceilings remain optional compatibility controls but are disabled by the uncapped driver. Token plus web-search tool cost is appended to the durable private tracker after every completed API response. Notifications occur only at cumulative `$10` multiples.
 
 ### Clean-campaign evidence
 
-A campaign manifest hashes the prompt-determining source, copied input, dependency pins, and evaluator. The append-only event ledger records exactly one start, a completion, and any human intervention. Under the current pre-reset code, clean acceptance additionally requires `campaign_mode=clean`, zero intervention events, valid matching lifecycle evidence, and a successful three-seed confirmation. Phase 2 will replace that last condition with the requested deterministic seed-0 single-run gate.
+A campaign manifest hashes the prompt-determining source, copied input, dependency pins, and evaluator. The append-only event ledger records exactly one start, a completion, and any human intervention. Clean acceptance requires `campaign_mode=clean`, zero intervention events, matching lifecycle evidence, organizer-root lineage, and one AIDE-generated deterministic candidate that beats all three champion metrics. There is no hidden confirmation API call or manual promotion step.
 
 No audited campaign has `clean_campaign_accepted=true`.
 
@@ -278,7 +289,7 @@ These are development findings. They demonstrate that AIDE can generate a winnin
 
 ### Historical three-seed rejections
 
-The current code still performs seeds `0,1,2` after a breakthrough when confirmation is requested. This automation is scheduled for removal in Phase 2; it remains historical evidence only.
+Older harness versions performed seeds `0,1,2` after a breakthrough. That automation has been removed; the table remains historical robustness evidence only.
 
 | Campaign / candidate | Seed-0 primary | Seed-1 primary | Seed-2 primary | Mean GAUC | Mean nDCG@5 | Mean primary | Historical decision |
 |---|---:|---:|---:|---:|---:|---:|---|
@@ -338,16 +349,6 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pytest tests challenge\tests -q
 ```
 
-### Static paid-run dry run (no API call)
-
-```powershell
-.\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --steps 2 --model gpt-5.6-sol --max-output-tokens-per-call 8000 `
-  --max-input-tokens 35000 --max-output-tokens 16000 `
-  --max-run-usd 0.50 --input-usd-per-million 4 `
-  --output-usd-per-million 20 --campaign-mode development
-```
-
 ### API-free baseline and diagnostics smoke
 
 ```powershell
@@ -356,51 +357,21 @@ python -m venv .venv
   --run-id techjam-aide-v21-baseline-static
 ```
 
-### Two-iteration smoke campaign (`$0.50` ceiling)
+### Uncapped resumable development campaign
 
 ```powershell
-.\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --execute --steps 2 --model gpt-5.6-sol --max-output-tokens-per-call 8000 `
-  --max-input-tokens 35000 --max-output-tokens 16000 `
-  --max-run-usd 0.50 --input-usd-per-million 4 `
-  --output-usd-per-million 20 --campaign-mode development `
-  --run-id techjam-aide-smoke-<version>
+.\.venv\Scripts\python.exe challenge\run_uncapped_campaign_loop.py
 ```
 
-### Bounded development campaign (`$2` ceiling)
-
-```powershell
-.\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --execute --steps 6 --model gpt-5.6-sol --max-output-tokens-per-call 10000 `
-  --max-input-tokens 120000 --max-output-tokens 60000 `
-  --max-run-usd 2 --input-usd-per-million 4 `
-  --output-usd-per-million 20 --campaign-mode development `
-  --run-id techjam-aide-portfolio-dev-<version>
-```
-
-Every generated candidate is executed exactly once with fixed seed `0`. The removed `--confirm-on-breakthrough` option is rejected by the parser.
-
-### Fresh clean campaign (`$5` ceiling)
-
-```powershell
-.\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --execute --steps 46 --model gpt-5.6-sol --max-output-tokens-per-call 10000 `
-  --max-input-tokens 250000 --max-output-tokens 200000 `
-  --max-run-usd 5 --input-usd-per-million 4 `
-  --output-usd-per-million 20 --campaign-mode clean `
-  --run-id techjam-aide-portfolio-clean-<version>
-```
-
-The clean command starts from the organizer seed and uses only the frozen prompt, experiment memory, EDA summary, literature manifest, scheduler configuration, dependency lock, evaluator, and safety manifest. It never performs online literature lookup or multi-seed confirmation.
+The driver resumes at the next unused v26 campaign ID, refreshes experiment memory after each campaign, stops only after the configured scientific plateau and family exhaustion, and automatically creates a frozen checkpoint plus fresh offline clean campaign whenever a new candidate crosses every champion metric. Every generated candidate is executed exactly once with fixed seed `0`. The removed `--confirm-on-breakthrough` option is rejected by the parser.
 
 ## Current limitations and prioritized next work
 
-1. **Run the bounded six-iteration v24 GPT-5.6 Sol development campaign.** Its static dry-run is valid, contains all 16 frozen experiment summaries, and its worst-case API envelope is `$1.68`, within the `$2` development ceiling.
-2. **Stabilize the fastest rich-FM/DCN/history backbone.** Reproduce it comfortably under timeout and checkpoint on the exact emitted prediction. Resolve v20's seed-0 replay mismatch before adding complexity.
-3. **Prioritize the literature/EDA-backed duration branch.** Preserve the successful RAD direction, then compare one cached D2Q auxiliary inside the same training loop; do not add a second model/refit stage.
-4. **Build an nDCG@5 specialist.** Preserve the GAUC backbone, then test a tiny same-user BCE-dominant Lambda@5 residual or conservative normalized blend.
-5. **Use multi-fidelity only for search efficiency.** Screen variants on the internal chronological split, but require full fidelity for any accepted node and record both manifests.
-6. **Freeze and prove autonomy.** After development evidence stabilizes, run a fresh zero-intervention clean campaign and accept only an AIDE-generated seed-0 candidate that beats every component floor.
+1. **Reproduce and robustify the strongest AIDE RAD direction.** The scheduler now prioritizes the historical `0.605174` duration branch and asks Sol to recreate it independently from experiment memory.
+2. **Reduce internal-selection variance.** Use at least two strict chronological folds for combiners and learned gates, and prefer multi-fold guards for specialists when runtime permits.
+3. **Build separate GAUC and nDCG@5 specialists.** Preserve BCE and the proven FM backbone; use bounded RankNet and LambdaLoss@5 residuals rather than wholesale replacements.
+4. **Combine only retained complementary branches.** Rank-normalize within user, use conservative OOF weights, and do not unlock a learned segment gate until fixed blends demonstrate signal.
+5. **Freeze and prove autonomy automatically.** The uncapped driver checkpoints every qualifying `+0.0002` improvement and dispatches a fresh organizer-root offline clean campaign.
 
 ## Commit-safety warning
 

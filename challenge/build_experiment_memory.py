@@ -33,11 +33,16 @@ SAFE_CONFIG_KEYS = {
     "literature_citation_ids",
     "losses",
     "model_family",
+    "role",
     "risks",
     "scientific_change",
     "change_scope",
     "preserved_parent_components",
     "target_metric",
+    "runtime_change_accepted",
+    "change_decision_reason",
+    "fallback_parent_node_id",
+    "external_role_gate_passed",
 }
 
 
@@ -49,10 +54,25 @@ def _safe_config(record: TrialRecord) -> dict[str, Any]:
     }
 
 
+def _metric_parent(
+    record: TrialRecord, records_by_trial_id: dict[str, TrialRecord]
+) -> TrialRecord | None:
+    parent = records_by_trial_id.get(str(record.parent_trial_id or ""))
+    seen: set[str] = set()
+    while parent is not None and parent.trial_id not in seen:
+        seen.add(parent.trial_id)
+        if parent.metrics:
+            return parent
+        parent = records_by_trial_id.get(str(parent.parent_trial_id or ""))
+    return None
+
+
 def _outcome(record: TrialRecord, records_by_trial_id: dict[str, TrialRecord]) -> str:
     if not record.metrics:
         return "execution_failure"
-    parent = records_by_trial_id.get(str(record.parent_trial_id or ""))
+    if (record.config or {}).get("runtime_change_accepted") is False:
+        return "falsified_internal"
+    parent = _metric_parent(record, records_by_trial_id)
     if parent is None or not parent.metrics:
         return "evaluated"
     keys = ("GAUC", "nDCG@5", "primary")

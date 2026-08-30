@@ -103,10 +103,30 @@ falsification condition, and internal-validation fidelity.
 For `improve` and `refine`, preserve the selected parent's working backbone and
 make one localized scientific change; do not replace the entire program. Risky
 additions need a conservative residual/gate/blend, a same-split parent comparison,
-and a parent-relative abort condition. A debug repair must preserve the parent's
+and a parent-relative abort condition. That comparison must use the exact selected
+parent representation, preprocessing, optimizer, seed, and training path—not a
+simplified control. The organizer anchor has five fields (`user_id`, `video_id`,
+`author_id`, `tab`, `dur_bucket`) and its fixed seed-0 all-train checkpoint is epoch
+7. A debug repair must preserve the parent's
 scientific family and hypothesis. Do not import code from
 `challenge/`, prior runs, reports, or frozen solutions, and never load previous
 predictions, checkpoints, or weights.
+
+Every generated program must also write `./working/change_decision.json` with
+boolean `accepted_change`, a reason, internal parent/candidate metric objects, and
+the selected configuration. If the internal gate rejects the change, declare it
+false; the trusted harness retains the exact metric-bearing parent. A fresh refit
+with a re-selected epoch is not an exact fallback. Static `video_type` includes
+categorical strings such as `NORMAL`; organizer `data.load` returns raw row lists,
+whereas `encode(...)[split][2]` returns aligned users.
+
+The scheduler assigns one multi-objective role to every candidate: `balanced`,
+`gauc_specialist`, `ndcg5_specialist`, `diversity`, or `combiner`. Copy that role
+exactly into the candidate card. Intermediate specialists may retain a bounded
+tradeoff so that the tree can learn a complementary GAUC or top-five ranking
+signal. Final selection is lexicographic: first exceed GAUC `0.671052` and
+nDCG@5 `0.538014`, then maximize primary beyond `0.604533` without a fixed upper
+stopping target. Primary `0.605033` and `0.610000` are research milestones only.
 
 Write exactly `./working/validation_predictions.csv` with header `row_id,score`,
 row IDs `0..124908` in original validation order, and finite scores. Read the
@@ -122,10 +142,11 @@ evaluator and its aggregate diagnostics are authoritative.
 
 1. Reproduce the organizer FM ancestry root.
 2. Read the bounded EDA, literature, experiment-memory, and current-journal evidence.
-3. Choose a model family and Pareto-compatible parent using both metric components,
-   diversity, runtime/API cost, failure history, and lineage compatibility.
+3. Choose a model family, multi-objective role, and compatible non-root parent using
+   both metric components, diversity, runtime, failure history, and lineage compatibility.
 4. State one falsifiable atomic hypothesis and implement it completely.
 5. Evaluate once at seed 0 and record hashes, metrics, diagnostics, cost, and recovery.
 6. Repair a bounded implementation failure without changing its science, or abandon
    the branch and select another evidence-backed family.
-7. Continue until the official convergence, 50-iteration, six-hour, or cost limit.
+7. Continue until the official convergence, 50-iteration, or six-hour limit. Cost is
+   logged and notified at $10 boundaries but is never a stopping condition.

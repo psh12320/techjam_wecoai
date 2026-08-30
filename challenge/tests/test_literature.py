@@ -17,6 +17,11 @@ from challenge.techjam_recsys.literature import (
     run_literature_research,
     write_manifest,
 )
+from challenge.techjam_recsys.openai_literature import (
+    OpenAIWebLiteratureProvider,
+    PRIMARY_SOURCE_DOMAINS,
+    _is_primary_source_url,
+)
 
 
 def test_repository_starter_manifest_is_valid_and_frozen() -> None:
@@ -193,3 +198,42 @@ def test_manifest_hash_detects_tampering(tmp_path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(LiteratureValidationError, match="cache_sha256"):
         load_manifest(path)
+
+
+def test_openai_scout_is_structured_bounded_and_store_disabled(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_query(**kwargs):
+        captured.update(kwargs)
+        return json.dumps(
+            {
+                "notes": [
+                    _note(1) | {"url": "https://arxiv.org/abs/2401.00001"},
+                    _note(2) | {"url": "https://untrusted.example/paper"},
+                ]
+            }
+        )
+
+    monkeypatch.setattr(
+        "challenge.techjam_recsys.openai_literature.backend.query", fake_query
+    )
+    provider = OpenAIWebLiteratureProvider(max_tool_calls=3)
+    notes = list(provider.search("bounded recommender question", limit=2))
+
+    assert len(notes) == 1
+    assert notes[0]["url"].startswith("https://arxiv.org/")
+    assert captured["model"] == "gpt-5.6-sol"
+    assert captured["reasoning"] == {"effort": "high"}
+    assert captured["store"] is False
+    assert captured["max_tool_calls"] == 3
+    tool = captured["tools"][0]
+    assert tool["type"] == "web_search"
+    assert tuple(tool["filters"]["allowed_domains"]) == PRIMARY_SOURCE_DOMAINS
+    assert captured["text"]["format"]["strict"] is True
+
+
+def test_primary_source_url_rejects_suffix_confusion() -> None:
+    assert _is_primary_source_url("https://arxiv.org/abs/1")
+    assert _is_primary_source_url("https://research.google/pubs/example")
+    assert not _is_primary_source_url("https://arxiv.org.attacker.example/paper")
+    assert not _is_primary_source_url("not-a-url")

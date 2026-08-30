@@ -53,6 +53,7 @@ def test_complete_candidate_card_validates_parent_and_evidence_ids() -> None:
         "parent_node_id": "parent-1",
         "parent_code_sha256": parent_code_hash,
         "model_family": "history_residual",
+        "role": "balanced",
         "eda_observation_ids": ["EDA-1"],
         "literature_citation_ids": ["LIT-1"],
         "scientific_change": "add one strictly-past count residual",
@@ -236,7 +237,8 @@ def test_portfolio_scheduler_forces_one_rich_milestone_then_coverage() -> None:
     )
     journal.append(dcn)
     parent, assignment = scheduler.choose(journal)
-    assert assignment.family == "history_residual"
+    assert assignment.family == "metric_aligned"
+    assert assignment.role in {"gauc_specialist", "ndcg5_specialist"}
     assert parent is dcn
     assert assignment.alternatives
 
@@ -316,7 +318,106 @@ def test_parent_dominated_rich_attempt_exits_forced_milestone() -> None:
     assert stats["rich_fm"].parent_dominated_attempts == 1
     parent, assignment = scheduler.choose(journal)
     assert parent is seed
-    assert assignment.family == "history_residual"
+    assert assignment.family == "dcn_v2"
+    assert assignment.role == "diversity"
+
+
+def test_repaired_node_compares_with_nearest_metric_ancestor() -> None:
+    def analysis(gauc: float, ndcg: float) -> str:
+        return json.dumps(
+            {"metrics": {"GAUC": gauc, "nDCG@5": ndcg, "primary": (gauc + ndcg) / 2}}
+        )
+
+    seed = Node(
+        code="pass",
+        plan="baseline",
+        candidate_spec={"model_family": "official_fm_seed"},
+        metric=MetricValue(0.6015, maximize=True),
+        analysis=analysis(0.667, 0.536),
+        is_buggy=False,
+    )
+    failed = Node(
+        code="pass",
+        plan="duration failure",
+        parent=seed,
+        candidate_spec={"model_family": "duration_auxiliary"},
+        metric=WorstMetricValue(maximize=True),
+        is_buggy=True,
+    )
+    repaired = Node(
+        code="pass",
+        plan="duration repaired",
+        parent=failed,
+        candidate_spec={
+            "model_family": "duration_auxiliary",
+            "scientific_change": "same duration auxiliary",
+            "internal_validation": {"split": "last_3_train_days"},
+        },
+        metric=MetricValue(0.6005, maximize=True),
+        analysis=analysis(0.666, 0.535),
+        is_buggy=False,
+    )
+    stats = PortfolioScheduler()._family_stats(
+        Journal(nodes=[seed, failed, repaired], metric_maximize=True)
+    )
+    assert stats["duration_auxiliary"].attempts == 1
+    assert stats["duration_auxiliary"].parent_dominated_attempts == 1
+
+
+def test_development_scheduler_uses_prior_rich_milestone() -> None:
+    seed = Node(
+        code="pass",
+        plan="baseline",
+        candidate_spec={"model_family": "official_fm_seed"},
+        metric=MetricValue(0.601469, maximize=True),
+        analysis=json.dumps(
+            {"metrics": {"GAUC": 0.667133, "nDCG@5": 0.535805, "primary": 0.601469}}
+        ),
+        is_buggy=False,
+    )
+    prior = {
+        "entries": [
+            {
+                "node_id": "prior-rich",
+                "model_family": "rich_fm",
+                "outcome": "improved_both_components",
+                "metrics": {"GAUC": 0.6705, "nDCG@5": 0.5375, "primary": 0.6040},
+                "configuration": {"scientific_change": "prior rich milestone"},
+            }
+        ]
+    }
+    _, assignment = PortfolioScheduler(
+        prior_memory=prior, require_fresh_rich_milestone=False
+    ).choose(Journal(nodes=[seed], metric_maximize=True))
+    assert assignment.family != "rich_fm"
+
+
+def test_falsified_runtime_node_is_not_on_pareto_frontier() -> None:
+    seed = Node(
+        id="seed",
+        code="pass",
+        plan="seed",
+        candidate_spec={"model_family": "official_fm_seed"},
+        metric=MetricValue(0.60, maximize=True),
+        analysis=json.dumps(
+            {"metrics": {"GAUC": 0.66, "nDCG@5": 0.54, "primary": 0.60}}
+        ),
+        is_buggy=False,
+    )
+    rejected = Node(
+        id="rejected",
+        code="pass",
+        plan="no-op",
+        parent=seed,
+        candidate_spec={
+            "model_family": "history_residual",
+            "runtime_change_accepted": False,
+        },
+        metric=MetricValue(0.60, maximize=True),
+        analysis=seed.analysis,
+        is_buggy=False,
+    )
+    assert pareto_frontier([seed, rejected]) == [seed]
 
 
 def test_pareto_frontier_keeps_ndcg_specialist_and_removes_dominated_node() -> None:
@@ -394,8 +495,68 @@ def test_scheduler_penalizes_timeout_duplicate_and_moves_to_evidence_backed_fami
     Node(code="pass", plan="abandoned repair", parent=timed_out, is_buggy=True)
     journal = Journal(nodes=[seed, rich, timed_out], metric_maximize=True)
     _, assignment = PortfolioScheduler(max_debug_depth=3).choose(journal)
-    assert assignment.family == "duration_auxiliary"
+    assert assignment.family == "dcn_v2"
+    assert assignment.role == "diversity"
     assert "failure_penalty" in assignment.feature_vector
+
+
+def test_scheduler_revisits_prior_above_champion_family_for_robustness() -> None:
+    seed = Node(
+        code="pass",
+        plan="seed",
+        candidate_spec={"model_family": "official_fm_seed"},
+        metric=MetricValue(0.601469, maximize=True),
+        analysis=json.dumps(
+            {
+                "metrics": {
+                    "GAUC": 0.667133,
+                    "nDCG@5": 0.535805,
+                    "primary": 0.601469,
+                }
+            }
+        ),
+        is_buggy=False,
+    )
+    prior_memory = {
+        "entries": [
+            {
+                "node_id": "prior-rich",
+                "model_family": "rich_fm",
+                "outcome": "improved_both_components",
+                "metrics": {
+                    "GAUC": 0.6709,
+                    "nDCG@5": 0.5378,
+                    "primary": 0.6040,
+                },
+                "configuration": {
+                    "scientific_change": "rich FM milestone",
+                    "runtime_change_accepted": True,
+                },
+            },
+            {
+                "node_id": "prior-rad",
+                "model_family": "duration_auxiliary",
+                "outcome": "improved_both_components",
+                "metrics": {
+                    "GAUC": 0.6721409,
+                    "nDCG@5": 0.5382067,
+                    "primary": 0.6051738,
+                },
+                "configuration": {
+                    "scientific_change": "bounded RAD residual",
+                    "runtime_change_accepted": True,
+                },
+                "candidate_exec_seconds": 500,
+            }
+        ]
+    }
+    _, assignment = PortfolioScheduler(
+        prior_memory=prior_memory,
+        require_fresh_rich_milestone=False,
+    ).choose(Journal(nodes=[seed], metric_maximize=True))
+    assert assignment.family == "duration_auxiliary"
+    assert assignment.role == "balanced"
+    assert assignment.feature_vector["prior_breakthrough_evidence"] > 1.25
 
 
 def test_task_prompt_is_thin_benchmark_contract_not_forced_solution() -> None:
@@ -409,6 +570,9 @@ def test_task_prompt_is_thin_benchmark_contract_not_forced_solution() -> None:
         "boundary_time_ms = min(time_ms where date >= 20220419)",
         "prefix rows `1079102`",
         "holdout rows `62010`",
+        "exact selected",
+        "change_decision.json",
+        "`NORMAL`",
         "one bounded scientific improvement",
     )
     for value in required:

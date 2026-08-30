@@ -94,9 +94,10 @@ class ConvergenceTracker:
         return self.should_stop
 
     def observe_failure(self) -> bool:
-        """Count a failed implementation against limits, not metric patience."""
+        """Count a failed iteration against both the hard cap and patience."""
 
         self.observations.append(None)
+        self.insignificant_iterations += 1
         return self.should_stop
 
     @property

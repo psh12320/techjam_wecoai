@@ -35,6 +35,7 @@ from aide.interpreter import (  # noqa: E402
     Interpreter,
 )
 from aide.journal import Journal, Node  # noqa: E402
+from aide.utils.response import extract_code, extract_text_up_to_code  # noqa: E402
 from aide.utils.config import (  # noqa: E402
     _load_cfg,
     load_task_desc,
@@ -58,14 +59,26 @@ from challenge.techjam_recsys.aide_portfolio import (  # noqa: E402
     PROMPT_VERSION,
     PortfolioAssignment,
     PortfolioScheduler,
+    candidate_role,
     candidate_code_sha256,
     clean_candidate_plan,
+    nearest_metric_ancestor,
+    node_metrics,
     pareto_frontier,
     parse_candidate_spec,
+    role_gate_passes,
     validate_candidate_spec,
     validate_candidate_source,
 )
-from challenge.techjam_recsys.literature import load_manifest  # noqa: E402
+from challenge.techjam_recsys.literature import (  # noqa: E402
+    LiteratureBounds,
+    load_manifest,
+    run_literature_research,
+)
+from challenge.techjam_recsys.openai_literature import (  # noqa: E402
+    OpenAIWebLiteratureProvider,
+    initialize_development_manifest,
+)
 from challenge.techjam_recsys.prompt_context import (  # noqa: E402
     PromptContext,
     canonical_sha256,
@@ -92,6 +105,8 @@ class KuaiRandAgent(Agent):
         prompt_context: PromptContext | None = None,
         allowed_eda_observation_ids: set[str] | None = None,
         allowed_literature_citation_ids: set[str] | None = None,
+        reasoning_effort: str = "xhigh",
+        repair_reasoning_effort: str = "high",
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -106,6 +121,8 @@ class KuaiRandAgent(Agent):
         self.prompt_context = prompt_context
         self.allowed_eda_observation_ids = allowed_eda_observation_ids or set()
         self.allowed_literature_citation_ids = allowed_literature_citation_ids or set()
+        self.reasoning_effort = reasoning_effort
+        self.repair_reasoning_effort = repair_reasoning_effort
 
     @property
     def _prompt_environment(self):
@@ -144,7 +161,7 @@ class KuaiRandAgent(Agent):
         return {
             "Response format": (
                 "Start with exactly one <candidate_spec> tag containing valid JSON "
-                "with keys parent_node_id, parent_code_sha256, model_family, "
+                "with keys parent_node_id, parent_code_sha256, model_family, role, "
                 "eda_observation_ids, literature_citation_ids, scientific_change, "
                 "change_scope, preserved_parent_components, hypothesis, features, "
                 "losses, hyperparameters, target_metric, "
@@ -159,6 +176,13 @@ class KuaiRandAgent(Agent):
                 "change_scope must be exactly one of features, architecture, loss, training, "
                 "or reranking; list the parent mechanisms retained verbatim in "
                 "preserved_parent_components. "
+                "role must exactly match the assigned role: balanced, gauc_specialist, "
+                "ndcg5_specialist, diversity, or combiner. A specialist may retain a "
+                "bounded component tradeoff; only a final combiner must clear both "
+                "champion component floors. "
+                "The executable must also write ./working/change_decision.json with "
+                "accepted_change (boolean), reason, internal_parent_metrics, "
+                "internal_candidate_metrics, and selected_configuration. "
                 "After </candidate_spec>, write a 3-5 sentence hypothesis, then exactly one complete Python code block. Do not add headings or "
                 "text after the code block."
             )
@@ -181,6 +205,10 @@ class KuaiRandAgent(Agent):
                 "When importing the organizer evaluator, insert ./input into sys.path before from evaluate import evaluate; do not implement a substitute metric.",
                 "For chronological pandas loops, do not access leading-underscore helper columns through named itertuples attributes; use arrays, positional tuples, or non-underscore helper names.",
                 "The organizer baseline.FM API expects a dense integer matrix of feature indices shaped (rows, fields); never pass a scipy sparse/CSR one-hot matrix directly to baseline.FM.step or baseline.FM.predict.",
+                "The organizer control has exactly five fields: user_id, video_id, author_id, tab, and train-quantile dur_bucket. Its seed-0 all-train anchor uses baseline.FM(k=16, lr=0.001), batch size 8192, NumPy default_rng(0), and the fixed epoch-7 checkpoint that reproduces GAUC 0.6671326322, nDCG@5 0.5358048805, primary 0.6014687564.",
+                "A same-split parent control must reproduce the exact selected parent representation, preprocessing, loss, optimizer, seed, and training path. Never compare against a simplified user/video-only control. If the internal gate rejects the change, declare accepted_change=false and let the trusted harness retain the exact metric-bearing parent; do not re-select an epoch or call a fresh refit a parent fallback.",
+                "Write ./working/change_decision.json as one JSON object with accepted_change, reason, internal_parent_metrics, internal_candidate_metrics, and selected_configuration. Still write the required candidate predictions; the trusted reviewer ignores them and retains the exact parent when accepted_change is false.",
+                "Static video_type is categorical text and includes values such as NORMAL; canonicalize all categorical dtypes and never blindly cast metadata to integers. data.load(...)[split] is a list of raw organizer rows, while encode(data.load(...))[split][2] is the aligned user vector. Run cheap dtype, shape, and canonical-split assertions before expensive training.",
                 "Implement the canonical internal split by computing boundary_time_ms=min(time_ms where date>=20220419), then use time_ms<boundary for prefix and time_ms>=boundary for holdout. Assert boundary_time_ms=1650295266482, prefix rows=1079102, and holdout rows=62010; a date-only April 19-21 mask is invalid.",
                 "Use at most four CPU threads and keep peak memory below 3 GB; never derive thread count from os.cpu_count().",
                 "Print useful training progress, but the external deterministic evaluator is authoritative.",
@@ -208,7 +236,29 @@ class KuaiRandAgent(Agent):
             prompt["Current campaign journal"] = prompt.pop("Memory")
         if self.prompt_context is not None:
             prompt.update(self.prompt_context.sections())
-        return super().plan_and_code_query(prompt, retries=retries)
+        effort = (
+            self.repair_reasoning_effort
+            if self.current_assignment.action == "debug"
+            else self.reasoning_effort
+        )
+        completion_text = None
+        for _ in range(retries):
+            completion_text = backend.query(
+                system_message=prompt,
+                user_message=None,
+                model=self.acfg.code.model,
+                temperature=self.acfg.code.temp,
+                max_tokens=self.acfg.code.get("max_tokens", None),
+                reasoning={"effort": effort},
+                store=False,
+            )
+            code = extract_code(completion_text)
+            nl_text = extract_text_up_to_code(completion_text)
+            if code and nl_text:
+                return nl_text, code
+            print("Plan + code extraction failed, retrying...")
+        print("Final plan + code extraction attempt failed, giving up...")
+        return "", completion_text  # type: ignore[return-value]
 
     def update_data_preview(self) -> None:
         # Generic CSV previews are large, unstable, and duplicate the audited EDA.
@@ -228,6 +278,7 @@ class KuaiRandAgent(Agent):
             ),
             allowed_eda_observation_ids=self.allowed_eda_observation_ids,
             allowed_literature_citation_ids=self.allowed_literature_citation_ids,
+            expected_role=self.current_assignment.role,
         )
         if (
             self.current_assignment.action == "debug"
@@ -250,6 +301,8 @@ class KuaiRandAgent(Agent):
                 "change_scope"
             ):
                 errors.append("debug repair changed the locked change scope")
+            if node.candidate_spec.get("role") != parent.candidate_spec.get("role"):
+                errors.append("debug repair changed the locked candidate role")
         node.candidate_spec["validation_errors"] = sorted(set(errors))
         node.candidate_spec["card_complete"] = not errors
         return node
@@ -327,6 +380,7 @@ def campaign_source_paths() -> tuple[Path, ...]:
         ROOT / "challenge" / "techjam_recsys" / "diagnostics.py",
         ROOT / "challenge" / "techjam_recsys" / "eda.py",
         ROOT / "challenge" / "techjam_recsys" / "literature.py",
+        ROOT / "challenge" / "techjam_recsys" / "openai_literature.py",
         ROOT / "challenge" / "techjam_recsys" / "metrics.py",
         ROOT / "challenge" / "techjam_recsys" / "protocol.py",
         ROOT / "challenge" / "techjam_recsys" / "prompt_context.py",
@@ -476,9 +530,95 @@ def compact_cost_totals(state: dict[str, object] | None) -> dict[str, object]:
         "total_input_tokens": state.get("total_input_tokens", 0),
         "total_output_tokens": state.get("total_output_tokens", 0),
         "total_requests": state.get("total_requests", 0),
+        "total_web_search_calls": state.get("total_web_search_calls", 0),
         "next_notification_usd": state.get("next_notification_usd"),
         "latest_event": latest_event,
     }
+
+
+def research_weaknesses(experiment_memory: dict[str, object]) -> list[str]:
+    """Turn durable aggregate outcomes into bounded literature-search evidence."""
+
+    entries = experiment_memory.get("entries")
+    records = (
+        [entry for entry in entries if isinstance(entry, dict)]
+        if isinstance(entries, list)
+        else []
+    )
+    scored = [
+        entry
+        for entry in records
+        if isinstance(entry.get("metrics"), dict)
+        and all(
+            key in entry["metrics"] for key in ("GAUC", "nDCG@5", "primary")
+        )
+    ]
+    best = max(
+        scored,
+        key=lambda entry: float(entry["metrics"]["primary"]),
+        default=None,
+    )
+    weaknesses = [
+        "GAUC group-aware ranking with within-user pairwise objectives",
+        "nDCG top-five LambdaLoss reranking and conservative blending",
+        "candidate-aware chronological history for repeat exposure and cold-start",
+        "duration watch-time debiasing with censored or relative objectives",
+        "diverse residual ensemble with field interactions",
+        "warm user short video segment gating and mixture residuals",
+    ]
+    if best is not None:
+        metrics = best["metrics"]
+        weaknesses.insert(
+            0,
+            (
+                f"Best durable primary={float(metrics['primary']):.9f}, "
+                f"GAUC gap={CHAMPION_VALID['GAUC'] - float(metrics['GAUC']):+.9f}, "
+                f"nDCG@5 gap={CHAMPION_VALID['nDCG@5'] - float(metrics['nDCG@5']):+.9f}"
+            ),
+        )
+    internal_transfer_failures = 0
+    consecutive_failures = 0
+    for entry in records:
+        outcome = str(entry.get("outcome") or entry.get("status") or "").strip()
+        config = entry.get("configuration")
+        config = config if isinstance(config, dict) else {}
+        if (
+            outcome in {"parent_dominated", "role_gate_rejected"}
+            and config.get("runtime_change_accepted") is True
+        ):
+            internal_transfer_failures += 1
+        if outcome in {
+            "execution_failure",
+            "falsified_internal",
+            "parent_dominated",
+            "role_gate_rejected",
+        }:
+            consecutive_failures += 1
+        else:
+            consecutive_failures = 0
+    if internal_transfer_failures:
+        weaknesses.insert(
+            1,
+            (
+                f"{internal_transfer_failures} candidates passed an internal mechanism "
+                "or selection gate but regressed on external validation; seek robust "
+                "multi-fold chronological selection and low-variance objectives"
+            ),
+        )
+    if consecutive_failures >= 2:
+        weaknesses.insert(
+            1,
+            (
+                f"{consecutive_failures} consecutive scientific hypotheses failed; "
+                "seek a materially different evidence-backed mechanism"
+            ),
+        )
+    for entry in records[-6:]:
+        outcome = str(entry.get("outcome") or entry.get("status") or "").strip()
+        family = str(entry.get("model_family") or "").strip()
+        if outcome or family:
+            weaknesses.append(f"Recent experiment {family}: {outcome}")
+    return weaknesses
 
 
 def bounded_candidate_exec_seconds(
@@ -621,17 +761,43 @@ def parse_args(argv: list[str] | None = None):
         action="store_true",
         help="Run the deterministic organizer seed and diagnostics without any API call.",
     )
-    parser.add_argument("--steps", type=int, default=3)
+    parser.add_argument("--steps", type=int, default=MAX_ITERATIONS - 1)
     parser.add_argument("--model", default="gpt-5.6-sol")
-    parser.add_argument("--max-output-tokens-per-call", type=int, default=10_000)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=("low", "medium", "high", "xhigh", "max"),
+        default="xhigh",
+    )
+    parser.add_argument(
+        "--repair-reasoning-effort",
+        choices=("low", "medium", "high", "xhigh", "max"),
+        default="high",
+    )
+    parser.add_argument("--max-output-tokens-per-call", type=int, default=30_000)
     parser.add_argument("--per-trial-timeout", type=int, default=900)
     parser.add_argument("--run-id", default=None)
-    parser.add_argument("--max-run-usd", type=float, default=2.0)
-    parser.add_argument("--max-input-tokens", type=int, default=200_000)
-    parser.add_argument("--max-output-tokens", type=int, default=100_000)
+    parser.add_argument(
+        "--max-run-usd",
+        type=float,
+        default=None,
+        help="Deprecated optional compatibility ceiling; omit for uncapped execution.",
+    )
+    parser.add_argument(
+        "--max-input-tokens",
+        type=int,
+        default=0,
+        help="Optional process token stop; zero means unlimited.",
+    )
+    parser.add_argument(
+        "--max-output-tokens",
+        type=int,
+        default=0,
+        help="Optional process token stop; zero means unlimited.",
+    )
     parser.add_argument("--input-usd-per-million", type=float, required=False)
     parser.add_argument("--output-usd-per-million", type=float, required=False)
     parser.add_argument("--cost-notification-step-usd", type=float, default=10.0)
+    parser.add_argument("--web-search-usd-per-call", type=float, default=0.01)
     parser.add_argument(
         "--campaign-mode", choices=("development", "clean"), default="development"
     )
@@ -673,23 +839,42 @@ def parse_args(argv: list[str] | None = None):
         type=Path,
         default=ROOT / "challenge" / "research_memory" / "literature_manifest.json",
     )
+    parser.add_argument(
+        "--online-literature",
+        action="store_true",
+        help="Refresh a mutable development literature manifest before the campaign.",
+    )
+    parser.add_argument(
+        "--development-literature-manifest",
+        type=Path,
+        default=(
+            ROOT
+            / "challenge"
+            / "research_memory"
+            / "literature_manifest_development.json"
+        ),
+    )
+    parser.add_argument("--max-literature-queries", type=int, default=8)
+    parser.add_argument("--max-literature-notes", type=int, default=30)
+    parser.add_argument("--literature-results-per-query", type=int, default=4)
     return parser.parse_args(argv)
 
 
 def main() -> int:
     args = parse_args()
+    starting_cumulative_cost = 0.0
     max_search_steps = MAX_ITERATIONS - 1
     if not 1 <= args.steps <= max_search_steps:
         raise ValueError(
             f"steps must be between 1 and {max_search_steps}; the organizer seed and "
             f"generated attempts must stay within {MAX_ITERATIONS} total iterations"
         )
-    context_paths = (
+    initial_context_paths = (
         args.experiment_memory.resolve(),
         args.eda_summary.resolve(),
         args.literature_manifest.resolve(),
     )
-    for context_path in context_paths:
+    for context_path in initial_context_paths:
         if not context_path.exists():
             raise RuntimeError(f"Frozen prompt context is missing: {context_path}")
     experiment_memory = json.loads(args.experiment_memory.read_text(encoding="utf-8"))
@@ -699,6 +884,93 @@ def main() -> int:
     if memory_claim != canonical_sha256(memory_unsigned):
         raise RuntimeError("Experiment-memory content hash is invalid")
     eda_summary = json.loads(args.eda_summary.read_text(encoding="utf-8"))
+
+    if args.baseline_only:
+        input_price = 0.0
+        output_price = 0.0
+        estimated_ceiling = 0.0
+    else:
+        required = {
+            "input_usd_per_million": args.input_usd_per_million,
+            "output_usd_per_million": args.output_usd_per_million,
+        }
+        missing = [key for key, value in required.items() if value is None]
+        if missing and args.execute:
+            raise RuntimeError(
+                "Paid run blocked; current pricing must be supplied: "
+                + ", ".join(missing)
+            )
+        input_price = float(args.input_usd_per_million or 0.0)
+        output_price = float(args.output_usd_per_million or 0.0)
+        estimated_ceiling = (
+            estimate_uncached_cost(
+                args.max_input_tokens,
+                args.max_output_tokens,
+                input_price,
+                output_price,
+            )
+            if args.max_input_tokens > 0 and args.max_output_tokens > 0
+            else None
+        )
+        if (
+            args.max_run_usd is not None
+            and estimated_ceiling is not None
+            and estimated_ceiling > args.max_run_usd
+        ):
+            raise RuntimeError(
+                f"Paid run blocked: token envelope estimates ${estimated_ceiling:.4f}, "
+                f"above the explicitly configured ${args.max_run_usd:.4f} ceiling"
+            )
+    if args.execute and not args.baseline_only:
+        load_dotenv(ROOT / ".env.local")
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY is not available")
+        backend.reset_usage_totals()
+        backend.configure_cost_tracking(
+            args.cumulative_cost_file,
+            input_price,
+            output_price,
+            args.cost_notification_step_usd,
+            args.web_search_usd_per_call,
+        )
+        starting_cumulative_cost = float(
+            backend.get_cost_tracking_totals().get("total_estimated_cost_usd", 0.0)
+        )
+    if args.online_literature:
+        if args.campaign_mode != "development":
+            raise RuntimeError("Online literature research is development-only")
+        if args.execute and not args.baseline_only:
+            initialize_development_manifest(
+                args.literature_manifest,
+                args.development_literature_manifest,
+            )
+            scout = OpenAIWebLiteratureProvider(
+                model=args.model,
+                reasoning_effort=args.repair_reasoning_effort,
+            )
+            research_result = run_literature_research(
+                manifest_path=args.development_literature_manifest,
+                eda_findings=eda_summary,
+                weaknesses=research_weaknesses(experiment_memory),
+                mode="online",
+                provider=scout,
+                bounds=LiteratureBounds(
+                    max_queries=args.max_literature_queries,
+                    max_results_per_query=args.literature_results_per_query,
+                    max_total_notes=args.max_literature_notes,
+                ),
+            )
+            print(
+                "LITERATURE_RESEARCH="
+                + json.dumps(research_result.as_dict(), sort_keys=True)
+            )
+            args.literature_manifest = args.development_literature_manifest
+
+    context_paths = (
+        args.experiment_memory.resolve(),
+        args.eda_summary.resolve(),
+        args.literature_manifest.resolve(),
+    )
     literature_manifest = load_manifest(args.literature_manifest)
     if args.campaign_mode == "clean" and literature_manifest.get("mode") != "frozen":
         raise RuntimeError(
@@ -714,9 +986,12 @@ def main() -> int:
     experiment_memory_hash = str(memory_claim)
     eda_hash = str(eda_summary.get("report_sha256") or canonical_sha256(eda_summary))
     literature_hash = str(literature_manifest["manifest_sha256"])
-    scheduler_hash = canonical_sha256(
-        {"scheduler": "component-aware-pareto-v2", "max_debug_depth": 3}
-    )
+    scheduler_contract = {
+        "scheduler": "multi-objective-specialist-pareto-v4",
+        "max_debug_depth": 3,
+        "require_fresh_rich_milestone": args.campaign_mode == "clean",
+    }
+    scheduler_hash = canonical_sha256(scheduler_contract)
     dry_run = {
         "paid_execution": bool(args.execute and not args.baseline_only),
         "baseline_only": bool(args.baseline_only),
@@ -726,6 +1001,10 @@ def main() -> int:
         "deterministic_review_api_calls": 0,
         "max_output_tokens_per_call": args.max_output_tokens_per_call,
         "worst_case_output_tokens": (args.steps * args.max_output_tokens_per_call),
+        "reasoning_effort": args.reasoning_effort,
+        "repair_reasoning_effort": args.repair_reasoning_effort,
+        "online_literature": args.online_literature,
+        "cost_ceiling_enabled": args.max_run_usd is not None,
         "per_run_approval_required": False,
         "cost_notifications_usd": args.cost_notification_step_usd,
         "campaign_mode": args.campaign_mode,
@@ -743,34 +1022,6 @@ def main() -> int:
     if not args.execute and not args.baseline_only:
         print("DRY_RUN=" + json.dumps(dry_run, sort_keys=True))
         return 0
-    if args.baseline_only:
-        input_price = 0.0
-        output_price = 0.0
-        estimated_ceiling = 0.0
-    else:
-        required = {
-            "input_usd_per_million": args.input_usd_per_million,
-            "output_usd_per_million": args.output_usd_per_million,
-        }
-        missing = [key for key, value in required.items() if value is None]
-        if missing:
-            raise RuntimeError(
-                "Paid run blocked; current pricing must be supplied: "
-                + ", ".join(missing)
-            )
-        input_price = float(args.input_usd_per_million)
-        output_price = float(args.output_usd_per_million)
-        estimated_ceiling = estimate_uncached_cost(
-            args.max_input_tokens,
-            args.max_output_tokens,
-            input_price,
-            output_price,
-        )
-        if estimated_ceiling > args.max_run_usd:
-            raise RuntimeError(
-                f"Paid run blocked: token envelope estimates ${estimated_ceiling:.4f}, "
-                f"above the configured ${args.max_run_usd:.4f} run ceiling"
-            )
     if not args.agent_data.exists():
         raise RuntimeError("Run challenge/prepare_agent_data.py first")
     if not args.validation_index.exists():
@@ -778,11 +1029,6 @@ def main() -> int:
             "Evaluator index is missing; rerun challenge/prepare_agent_data.py so it "
             "is created outside the candidate input directory"
         )
-    if not args.baseline_only:
-        load_dotenv(ROOT / ".env.local")
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OPENAI_API_KEY is not available")
-
     cfg = _load_cfg(use_cli_args=False)
     cfg.data_dir = str(args.agent_data)
     cfg.desc_file = str(ROOT / "challenge" / "task.md")
@@ -836,12 +1082,12 @@ def main() -> int:
     _, _, internal_split = last_days_holdout(split_frame)
     del split_frame
     internal_validation_hash = internal_split.manifest_sha256
-    scheduler_hash = canonical_sha256(
-        {
-            "scheduler": "component-aware-pareto-v2",
-            "max_debug_depth": int(cfg.agent.search.max_debug_depth),
-        }
-    )
+    scheduler_contract = {
+        "scheduler": "multi-objective-specialist-pareto-v4",
+        "max_debug_depth": int(cfg.agent.search.max_debug_depth),
+        "require_fresh_rich_milestone": args.campaign_mode == "clean",
+    }
+    scheduler_hash = canonical_sha256(scheduler_contract)
     manifest = CampaignManifest(
         run_id=run_id,
         campaign_mode=args.campaign_mode,
@@ -893,7 +1139,11 @@ def main() -> int:
         cfg=cfg,
         journal=journal,
         result_reviewer=reviewer,
-        scheduler=PortfolioScheduler(max_debug_depth=cfg.agent.search.max_debug_depth),
+        scheduler=PortfolioScheduler(
+            max_debug_depth=cfg.agent.search.max_debug_depth,
+            prior_memory=experiment_memory,
+            require_fresh_rich_milestone=args.campaign_mode == "clean",
+        ),
         prompt_context=prompt_context,
         allowed_eda_observation_ids={
             str(item["id"]) for item in eda_summary.get("observations", [])
@@ -901,6 +1151,8 @@ def main() -> int:
         allowed_literature_citation_ids={
             str(item["citation_id"]) for item in literature_manifest.get("notes", [])
         },
+        reasoning_effort=args.reasoning_effort,
+        repair_reasoning_effort=args.repair_reasoning_effort,
     )
     interpreter = Interpreter(
         cfg.workspace_dir,
@@ -911,13 +1163,6 @@ def main() -> int:
     atexit.register(interpreter.cleanup_session)
     ledger = ExperimentLedger(cfg.log_dir / "iterations.jsonl")
     tracker = ConvergenceTracker(max_iterations=min(args.steps + 1, MAX_ITERATIONS))
-    backend.reset_usage_totals()
-    backend.configure_cost_tracking(
-        args.cumulative_cost_file,
-        input_price,
-        output_price,
-        args.cost_notification_step_usd,
-    )
     run_started = time.time()
     node_trial_ids: dict[str, str] = {}
 
@@ -955,7 +1200,11 @@ def main() -> int:
     seed = Node(
         plan="Reproduce the immutable organizer FM baseline before research iterations.",
         code=(ROOT / "challenge" / "agent_seed.py").read_text(encoding="utf-8"),
-        candidate_spec={"model_family": "official_fm_seed", "structured": True},
+        candidate_spec={
+            "model_family": "official_fm_seed",
+            "role": "balanced",
+            "structured": True,
+        },
     )
     seed_started = time.time()
     agent.parse_exec_result(seed, execute(seed.code, True))
@@ -1027,7 +1276,7 @@ def main() -> int:
         usage_before = backend.get_usage_totals()
         remaining_output = args.max_output_tokens - usage_before["output_tokens"]
         retry_reserve = args.max_output_tokens_per_call
-        if remaining_output < retry_reserve:
+        if args.max_output_tokens > 0 and remaining_output < retry_reserve:
             print(
                 "Stopping before the next API call: the remaining configured "
                 "output-token budget does not cover one bounded request."
@@ -1058,16 +1307,46 @@ def main() -> int:
         can_repair = (
             node.is_buggy and node.debug_depth < agent.scheduler.max_debug_depth
         )
+        scientific_change_accepted = spec.get("runtime_change_accepted") is not False
+        metric_parent = nearest_metric_ancestor(node.parent)
+        metric_parent_values = node_metrics(metric_parent) if metric_parent else None
+        parent_dominated = bool(
+            metrics
+            and metric_parent_values
+            and all(
+                metric_parent_values[key] >= metrics[key]
+                for key in ("GAUC", "nDCG@5", "primary")
+            )
+            and any(
+                metric_parent_values[key] > metrics[key]
+                for key in ("GAUC", "nDCG@5", "primary")
+            )
+        )
+        retained_by_role_gate = bool(metrics and role_gate_passes(node))
+        spec["external_role_gate_passed"] = retained_by_role_gate
+        spec["role"] = candidate_role(node)
         if node.is_buggy:
             decision = "repair_pending" if can_repair else "abandoned"
+        elif not scientific_change_accepted:
+            decision = "falsified_internal"
+        elif not retained_by_role_gate:
+            decision = "role_gate_rejected"
         elif assignment.action == "debug":
-            decision = "promoted_after_repair"
+            decision = (
+                "repaired_parent_dominated"
+                if parent_dominated
+                else "promoted_after_repair"
+            )
+        elif parent_dominated:
+            decision = "parent_dominated"
         else:
-            decision = "evaluated"
+            decision = f"retained_{candidate_role(node)}"
         recovery_outcome = None
         if assignment.action == "debug":
             if node.is_buggy:
                 recovery_outcome = "repair_failed" if can_repair else "abandoned"
+            elif not scientific_change_accepted:
+                recovery_outcome = "falsified_after_repair"
             else:
                 recovery_outcome = "repaired"
         candidate_record = TrialRecord(
@@ -1102,15 +1381,7 @@ def main() -> int:
             seed=0,
             evaluation_fidelity="full",
             evaluator_sha256=evaluator_hash,
-            artifact_ids=(
-                [
-                    f"predictions/{node.id}.npy",
-                    f"predictions/{node.id}.csv",
-                    f"diagnostics/{node.id}.json",
-                ]
-                if metrics
-                else []
-            ),
+            artifact_ids=sorted(candidate_artifact_hashes),
             artifact_sha256=candidate_artifact_hashes,
             run_id=run_id,
             campaign_manifest_sha256=manifest.sha256,
@@ -1127,7 +1398,11 @@ def main() -> int:
             ],
             scheduler_feature_vector=dict(assignment.feature_vector),
             pareto_frontier_member=node.id in frontier_ids,
-            expected_api_cost_usd=(args.max_run_usd / max(1, args.steps)),
+            expected_api_cost_usd=(
+                args.max_run_usd / max(1, args.steps)
+                if args.max_run_usd is not None
+                else None
+            ),
             actual_api_cost_usd=actual_api_cost,
             internal_validation_sha256=internal_validation_hash,
             diagnostics_sha256=candidate_artifact_hashes.get(
@@ -1154,7 +1429,10 @@ def main() -> int:
         )
         if should_stop:
             break
-        if usage_after["input_tokens"] >= args.max_input_tokens:
+        if (
+            args.max_input_tokens > 0
+            and usage_after["input_tokens"] >= args.max_input_tokens
+        ):
             print("Stopping: configured input-token budget reached.")
             break
 
@@ -1163,7 +1441,9 @@ def main() -> int:
         if node.parent is None:
             continue
         metrics, _ = parse_metrics(node.analysis)
-        if metrics:
+        if metrics and (node.candidate_spec or {}).get(
+            "runtime_change_accepted", True
+        ):
             generated.append((node, metrics, ChallengeMetric.from_mapping(metrics)))
     best_generated = max(
         generated, key=lambda item: float(item[1]["primary"]), default=None
@@ -1187,11 +1467,11 @@ def main() -> int:
 
     interpreter.cleanup_session()
     usage = backend.get_usage_totals()
-    run_estimated_cost_usd = estimate_uncached_cost(
-        int(usage.get("input_tokens", 0)),
-        int(usage.get("output_tokens", 0)),
-        input_price,
-        output_price,
+    cumulative_cost_state = backend.get_cost_tracking_totals()
+    run_estimated_cost_usd = max(
+        0.0,
+        float(cumulative_cost_state.get("total_estimated_cost_usd", 0.0))
+        - starting_cumulative_cost,
     )
     candidate_exec_seconds_total = sum(
         float(record.candidate_exec_seconds or 0.0)
@@ -1268,7 +1548,7 @@ def main() -> int:
         "per_trial_timeout_seconds": args.per_trial_timeout,
         "usage": usage,
         "run_estimated_cost_usd": run_estimated_cost_usd,
-        "cumulative_cost": compact_cost_totals(backend.get_cost_tracking_totals()),
+        "cumulative_cost": compact_cost_totals(cumulative_cost_state),
         "manual_interventions": final_manual_interventions,
     }
     (cfg.log_dir / "resource_summary.json").write_text(
