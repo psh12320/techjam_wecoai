@@ -9,6 +9,7 @@ from aide.utils.metric import MetricValue, WorstMetricValue
 from challenge.run_aide_research import KuaiRandAgent
 from challenge.techjam_recsys.aide_portfolio import (
     PortfolioScheduler,
+    candidate_code_sha256,
     normalize_family,
     pareto_frontier,
     parse_candidate_spec,
@@ -434,12 +435,16 @@ def test_improvement_prompt_receives_schema_environment_and_assignment() -> None
         )
 
     agent.plan_and_code_query = fake_query  # type: ignore[method-assign]
+    assert agent.search_policy() is parent
     node = agent._improve(parent)
 
     assert captured["Task description"] == "SCHEMA CONTRACT"
     assert captured["Data Overview"] == "REAL_DATA_OVERVIEW"
     assert "Verified runtime" in captured["Instructions"]
     assert captured["Instructions"]["Portfolio assignment"]["Assigned family"]
+    assert captured["Instructions"]["Portfolio assignment"][
+        "Selected parent code SHA-256"
+    ] == candidate_code_sha256(parent.code)
     assert node.candidate_spec["model_family"] == "rich_fm"
 
 

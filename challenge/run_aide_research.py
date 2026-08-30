@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -181,6 +182,12 @@ class KuaiRandAgent(Agent):
 
     def search_policy(self) -> Node | None:
         parent, assignment = self.scheduler.choose(self.journal)
+        if parent is not None:
+            assignment = replace(
+                assignment,
+                parent_node_id=parent.id,
+                parent_code_sha256=candidate_code_sha256(parent.code),
+            )
         self.current_assignment = assignment
         return parent
 

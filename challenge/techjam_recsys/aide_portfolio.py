@@ -104,6 +104,7 @@ class PortfolioAssignment:
     utility: float = 0.0
     alternatives: tuple[tuple[str, float], ...] = ()
     parent_node_id: str | None = None
+    parent_code_sha256: str | None = None
     feature_vector: dict[str, float] = field(default_factory=dict)
 
     def as_prompt(self) -> dict[str, str]:
@@ -116,6 +117,9 @@ class PortfolioAssignment:
                 f"{family}={utility:.4f}" for family, utility in self.alternatives
             ),
             "Selected parent node": self.parent_node_id or "organizer root/new draft",
+            "Selected parent code SHA-256": (
+                self.parent_code_sha256 or "none (organizer root/new draft)"
+            ),
             "Scheduler evidence": json.dumps(self.feature_vector, sort_keys=True),
         }
 
