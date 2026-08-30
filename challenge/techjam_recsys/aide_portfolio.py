@@ -11,7 +11,7 @@ from typing import Any
 
 from aide.journal import Journal, Node
 
-PROMPT_VERSION = "kuairand-aide-autonomy-v22"
+PROMPT_VERSION = "kuairand-aide-autonomy-v23"
 CHAMPION_VALID = {
     "GAUC": 0.6710518008586268,
     "nDCG@5": 0.5380142516919405,
@@ -108,6 +108,7 @@ class PortfolioAssignment:
     alternatives: tuple[tuple[str, float], ...] = ()
     parent_node_id: str | None = None
     parent_code_sha256: str | None = None
+    locked_candidate_fields: dict[str, Any] = field(default_factory=dict)
     feature_vector: dict[str, float] = field(default_factory=dict)
 
     def as_prompt(self) -> dict[str, str]:
@@ -122,6 +123,9 @@ class PortfolioAssignment:
             "Selected parent node": self.parent_node_id or "organizer root/new draft",
             "Selected parent code SHA-256": (
                 self.parent_code_sha256 or "none (organizer root/new draft)"
+            ),
+            "Locked repair fields (copy values verbatim)": json.dumps(
+                self.locked_candidate_fields, sort_keys=True
             ),
             "Scheduler evidence": json.dumps(self.feature_vector, sort_keys=True),
         }
@@ -673,15 +677,28 @@ class PortfolioScheduler:
         if debuggable:
             parent = debuggable[-1]
             family = self.family(parent)
+            parent_spec = parent.candidate_spec or {}
+            locked_fields = {
+                key: parent_spec.get(key)
+                for key in (
+                    "model_family",
+                    "scientific_change",
+                    "hypothesis",
+                    "change_scope",
+                )
+                if parent_spec.get(key) is not None
+            }
             return parent, PortfolioAssignment(
                 family=family,
                 action="debug",
                 reason=(
-                    "Repair the latest generated implementation without changing its "
-                    "scientific hypothesis or model family."
+                    "Repair only the latest implementation bug. Copy every locked repair "
+                    "field value verbatim; do not rephrase the scientific change, "
+                    "hypothesis, family, or change scope."
                 ),
                 utility=2.0,
                 alternatives=((family, 2.0),),
+                locked_candidate_fields=locked_fields,
             )
 
         good = journal.good_nodes

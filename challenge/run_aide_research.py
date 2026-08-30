@@ -178,6 +178,7 @@ class KuaiRandAgent(Agent):
                 "Use vectorized library operations for million-row training; avoid per-example Python loops and repeated numpy.add.at sparse updates.",
                 "When importing the organizer evaluator, insert ./input into sys.path before from evaluate import evaluate; do not implement a substitute metric.",
                 "For chronological pandas loops, do not access leading-underscore helper columns through named itertuples attributes; use arrays, positional tuples, or non-underscore helper names.",
+                "The organizer baseline.FM API expects a dense integer matrix of feature indices shaped (rows, fields); never pass a scipy sparse/CSR one-hot matrix directly to baseline.FM.step or baseline.FM.predict.",
                 "Use at most four CPU threads and keep peak memory below 3 GB; never derive thread count from os.cpu_count().",
                 "Print useful training progress, but the external deterministic evaluator is authoritative.",
             ],
@@ -238,6 +239,14 @@ class KuaiRandAgent(Agent):
                 "scientific_change"
             ) != parent.candidate_spec.get("scientific_change"):
                 errors.append("debug repair changed the scientific hypothesis")
+            if node.candidate_spec.get("hypothesis") != parent.candidate_spec.get(
+                "hypothesis"
+            ):
+                errors.append("debug repair rephrased the locked hypothesis")
+            if node.candidate_spec.get("change_scope") != parent.candidate_spec.get(
+                "change_scope"
+            ):
+                errors.append("debug repair changed the locked change scope")
         node.candidate_spec["validation_errors"] = sorted(set(errors))
         node.candidate_spec["card_complete"] = not errors
         return node

@@ -1,6 +1,6 @@
 # Autonomous KuaiRand Recommender Research: Status and Handoff
 
-Last audited: 2026-08-30 (Asia/Singapore), after the GPT-5.6 Sol v21 smoke and v22 policy correction. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
+Last audited: 2026-08-30 (Asia/Singapore), after the GPT-5.6 Sol v22 smoke and v23 debug-contract correction. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
 
 ## Current verdict
 
@@ -10,10 +10,10 @@ Neither result is a fresh frozen-prompt clean-run acceptance. Under the pre-rese
 
 The durable API tracker at [`challenge/private/api_spend.json`](../challenge/private/api_spend.json) reports exactly:
 
-- cumulative estimated cost: **`$9.478865`**;
-- requests: `92`;
-- input tokens: `896305`;
-- output tokens: `475426`;
+- cumulative estimated cost: **`$9.850409`**;
+- requests: `94`;
+- input tokens: `923191`;
+- output tokens: `488626`;
 - next notification boundary: `$10`.
 
 This tracker is machine-private and ignored by Git. The amount above was read from the tracker, not reconstructed from conversation history.
@@ -36,6 +36,8 @@ An API-free v21 baseline-only campaign completed with `0` requests and `$0` incr
 The paid GPT-5.6 Sol v21 smoke (`techjam-aide-v21-sol-smoke`) completed with two AIDE requests, zero manual interventions, and `$0.37668` incremental spend. Both generated candidates were valid, card-complete, lineage-bound rich-FM programs, but both regressed: node `236f4cbc597c44dc8e8edadf5d27eae0` scored GAUC `0.6454378172167383`, nDCG@5 `0.5261356050437236`, primary `0.585786711130231`; node `bd07139641ac4ba9ab6ad761187e2c31` scored `0.6359918380674021`, `0.5218392646763755`, `0.5789155513718889`. The run is a successful harness smoke and a rejected scientific result.
 
 The audit found that v21 forced two near-duplicate wholesale rich-FM replacements, retained prefix-only vocabularies for the final fit, discarded the proven optimizer/checkpoint recipe, and changed multiple mechanisms simultaneously. Prompt/scheduler v22 now records these nodes as parent-dominated memory, requires a single declared change scope plus preserved parent components, distinguishes internal-prefix preprocessing from an all-training final refit, penalizes parent-dominated families, and permits a second forced rich-FM refinement only when the first attempt improves both metric components. The v22 experiment-memory hash is `0d306458efc85afd6bd27e5d61922c106d41a2e8849144ec5b66dff8b4094e2a`.
+
+The v22 smoke (`techjam-aide-v22-sol-smoke`) spent `$0.371544` over two requests and produced no evaluated generated candidate. Its first card was valid and parent-preserving, but the code passed a CSR one-hot matrix to the organizer `baseline.FM` integer-index API and failed with `IndexError` after five seconds. GPT-5.6 Sol's second response correctly diagnosed the representation bug, but rephrased the locked scientific metadata and was rejected before compute. V23 now publishes the dense-integer organizer API contract, gives debug prompts the exact locked card values to copy verbatim, validates hypothesis and change scope as well as family/change, and freezes both v22 failures into experiment memory hash `7441d07d95782c585266441d14891eadd2caf99071a0c1478b85639afc977ddc`.
 
 ## Competition objective and official constraints
 
@@ -391,7 +393,7 @@ The clean command starts from the organizer seed and uses only the frozen prompt
 
 ## Current limitations and prioritized next work
 
-1. **Run the bounded v22 GPT-5.6 Sol smoke.** Confirm change-scope/preserved-parent cards, parent-dominated scheduling, corrected final-fit preprocessing, and the compact cost summary under the `$0.50` ceiling.
+1. **Run the bounded v23 GPT-5.6 Sol smoke.** Confirm the dense-integer FM contract, verbatim locked debug fields, corrected final-fit preprocessing, and compact cost summary under the `$0.50` ceiling.
 2. **Stabilize the fastest rich-FM/DCN/history backbone.** Reproduce it comfortably under timeout and checkpoint on the exact emitted prediction. Resolve v20's seed-0 replay mismatch before adding complexity.
 3. **Prioritize the literature/EDA-backed duration branch.** Preserve the successful RAD direction, then compare one cached D2Q auxiliary inside the same training loop; do not add a second model/refit stage.
 4. **Build an nDCG@5 specialist.** Preserve the GAUC backbone, then test a tiny same-user BCE-dominant Lambda@5 residual or conservative normalized blend.

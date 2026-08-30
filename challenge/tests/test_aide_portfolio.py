@@ -263,6 +263,9 @@ def test_portfolio_scheduler_forces_one_rich_milestone_then_coverage() -> None:
         candidate_spec={
             "model_family": "duration_auxiliary",
             "assignment_family": "duration_auxiliary",
+            "scientific_change": "add one duration auxiliary",
+            "hypothesis": "relative duration signal improves ranking",
+            "change_scope": "loss",
         },
         metric=WorstMetricValue(maximize=True),
         is_buggy=True,
@@ -272,6 +275,12 @@ def test_portfolio_scheduler_forces_one_rich_milestone_then_coverage() -> None:
     assert parent is failed
     assert assignment.action == "debug"
     assert assignment.family == "duration_auxiliary"
+    assert assignment.locked_candidate_fields == {
+        "model_family": "duration_auxiliary",
+        "scientific_change": "add one duration auxiliary",
+        "hypothesis": "relative duration signal improves ranking",
+        "change_scope": "loss",
+    }
 
 
 def test_parent_dominated_rich_attempt_exits_forced_milestone() -> None:
