@@ -406,6 +406,9 @@ def test_task_prompt_is_thin_benchmark_contract_not_forced_solution() -> None:
         "EDA evidence",
         "Literature evidence",
         "last-three-training-days",
+        "boundary_time_ms = min(time_ms where date >= 20220419)",
+        "prefix rows `1079102`",
+        "holdout rows `62010`",
         "one bounded scientific improvement",
     )
     for value in required:

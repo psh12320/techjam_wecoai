@@ -11,7 +11,7 @@ from typing import Any
 
 from aide.journal import Journal, Node
 
-PROMPT_VERSION = "kuairand-aide-autonomy-v23"
+PROMPT_VERSION = "kuairand-aide-autonomy-v24"
 CHAMPION_VALID = {
     "GAUC": 0.6710518008586268,
     "nDCG@5": 0.5380142516919405,

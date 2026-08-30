@@ -151,7 +151,9 @@ class KuaiRandAgent(Agent):
                 "expected_metric_effects (with GAUC, nDCG@5, and primary), "
                 "estimated_runtime_seconds, estimated_memory_mb, risks, abort_criteria, "
                 "falsification_condition, fidelity, and internal_validation. Use fidelity "
-                "'full' and internal_validation split 'last_3_train_days'. The parent fields "
+                "'full' and internal_validation split 'last_3_train_days_strict_time', "
+                "boundary_time_ms 1650295266482, train_rows 1079102, and holdout_rows 62010. "
+                "The parent fields "
                 "must exactly match the selected portfolio parent. model_family must equal "
                 "the assigned scientific-change family, not merely the parent's base family. "
                 "change_scope must be exactly one of features, architecture, loss, training, "
@@ -179,6 +181,7 @@ class KuaiRandAgent(Agent):
                 "When importing the organizer evaluator, insert ./input into sys.path before from evaluate import evaluate; do not implement a substitute metric.",
                 "For chronological pandas loops, do not access leading-underscore helper columns through named itertuples attributes; use arrays, positional tuples, or non-underscore helper names.",
                 "The organizer baseline.FM API expects a dense integer matrix of feature indices shaped (rows, fields); never pass a scipy sparse/CSR one-hot matrix directly to baseline.FM.step or baseline.FM.predict.",
+                "Implement the canonical internal split by computing boundary_time_ms=min(time_ms where date>=20220419), then use time_ms<boundary for prefix and time_ms>=boundary for holdout. Assert boundary_time_ms=1650295266482, prefix rows=1079102, and holdout rows=62010; a date-only April 19-21 mask is invalid.",
                 "Use at most four CPU threads and keep peak memory below 3 GB; never derive thread count from os.cpu_count().",
                 "Print useful training progress, but the external deterministic evaluator is authoritative.",
             ],

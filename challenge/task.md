@@ -75,9 +75,15 @@ targets or as history only when their event timestamp is strictly earlier than
 the candidate timestamp.
 
 For equal-user/equal-time groups, emit every feature before updating any state.
-Never roll validation outcomes into later validation rows. For the deterministic
-last-three-training-days internal holdout, fit preprocessing and auxiliary state
-only on its training prefix. For the final public-validation fit, rebuild those
+Never roll validation outcomes into later validation rows. The deterministic
+last-three-training-days internal holdout uses a strict event-time boundary, not
+a date-only mask: compute `boundary_time_ms = min(time_ms where date >= 20220419)`
+and split `time_ms < boundary_time_ms` versus `time_ms >= boundary_time_ms`, keeping
+all equal boundary timestamps in holdout. On the supplied training data this must
+produce boundary `1650295266482`, prefix rows `1079102`, and holdout rows `62010`;
+assert those values so a date-only April 19-21 split cannot silently pass. Fit
+preprocessing and auxiliary state only on that training prefix. For the final
+public-validation fit, rebuild those
 objects using all and only `train.csv`; do not strand later-training categories
 as unknown or unintentionally multiply prefix exposure. Public validation
 remains external research feedback and is never used for fitting.

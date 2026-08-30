@@ -86,3 +86,87 @@ def test_memory_builder_validates_ledger_and_omits_code_and_artifacts(
     assert memory["entries"][0]["configuration"]["scientific_change"]
     assert memory["entries"][0]["outcome"] == "evaluated"
     assert memory["content_sha256"] != "unbuilt"
+
+
+def test_memory_builder_reserves_latest_evaluated_descendants(tmp_path: Path) -> None:
+    ledger = ExperimentLedger(tmp_path / "iterations.jsonl")
+    root = TrialRecord(
+        iteration=0,
+        hypothesis="organizer",
+        model_family="official_fm_seed",
+        status="success",
+        metrics={"GAUC": 0.667, "nDCG@5": 0.535, "primary": 0.601},
+    )
+    ledger.append(root)
+    older = TrialRecord(
+        iteration=1,
+        hypothesis="older strong candidate",
+        model_family="duration_auxiliary",
+        status="success",
+        parent_trial_id=root.trial_id,
+        metrics={"GAUC": 0.672, "nDCG@5": 0.539, "primary": 0.6055},
+    )
+    ledger.append(older)
+    recent_tradeoff = TrialRecord(
+        iteration=2,
+        hypothesis="recent component tradeoff",
+        model_family="rich_fm",
+        status="success",
+        parent_trial_id=root.trial_id,
+        metrics={"GAUC": 0.6669, "nDCG@5": 0.5352, "primary": 0.60105},
+    )
+    ledger.append(recent_tradeoff)
+    recent_fallback = TrialRecord(
+        iteration=3,
+        hypothesis="recent gated fallback",
+        model_family="history_residual",
+        status="success",
+        parent_trial_id=recent_tradeoff.trial_id,
+        metrics=dict(recent_tradeoff.metrics or {}),
+    )
+    ledger.append(recent_fallback)
+
+    memory = build_memory([ledger.path], max_entries=3)
+    ids = {entry["trial_id"] for entry in memory["entries"]}
+    assert recent_tradeoff.trial_id in ids
+    assert recent_fallback.trial_id in ids
+
+
+def test_prompt_projection_keeps_all_sixteen_compact_entries(tmp_path: Path) -> None:
+    (tmp_path / "challenge/prompts").mkdir(parents=True)
+    (tmp_path / "challenge/research_memory").mkdir(parents=True)
+    (tmp_path / "challenge/prompts/hard_constraints.md").write_text(
+        "hard", encoding="utf-8"
+    )
+    (tmp_path / "challenge/prompts/research_menu.md").write_text(
+        "menu", encoding="utf-8"
+    )
+    entries = []
+    for index in range(16):
+        entries.append(
+            {
+                "node_id": f"node-{index}",
+                "model_family": f"family-{index}",
+                "status": "success",
+                "outcome": "component_tradeoff",
+                "metrics": {"GAUC": 0.66, "nDCG@5": 0.53, "primary": 0.595},
+                "configuration": {
+                    "scientific_change": f"bounded change {index}",
+                    "features": [f"feature-{value}" for value in range(12)],
+                    "losses": {"bce": 1.0},
+                },
+            }
+        )
+    (tmp_path / "challenge/research_memory/experiment_memory.json").write_text(
+        json.dumps({"entries": entries}), encoding="utf-8"
+    )
+    (tmp_path / "challenge/research_memory/literature_manifest.json").write_text(
+        "{}", encoding="utf-8"
+    )
+
+    prompt = json.loads(load_prompt_context(tmp_path).experiment_memory)
+    assert prompt["included_entries"] == 16
+    assert prompt["available_entries"] == 16
+    assert {entry["node_id"] for entry in prompt["entries"]} == {
+        f"node-{index}" for index in range(16)
+    }

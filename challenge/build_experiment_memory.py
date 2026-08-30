@@ -139,11 +139,29 @@ def build_memory(ledger_paths: list[Path], *, max_entries: int = 16) -> dict[str
         key=lambda record: (record.created_at_unix, record.trial_id),
         reverse=True,
     )
+    # Always reserve two slots for the most recent evaluated descendants. A
+    # pure score/family ranking can otherwise omit the newest component
+    # trade-off and a gated fallback, causing the next paid campaign to repeat
+    # the experiment it just completed.
+    recent_slots = min(2, max_entries)
+    recent = sorted(
+        (
+            record
+            for record in evaluated
+            if record.parent_trial_id and record.model_family != "official_fm_seed"
+        ),
+        key=lambda record: (record.created_at_unix, record.trial_id),
+        reverse=True,
+    )[:recent_slots]
     failure_slots = min(4, max_entries // 4)
     regression_slots = min(4, max_entries // 4)
-    success_slots = max(1, max_entries - failure_slots - regression_slots)
+    success_slots = max(
+        0, max_entries - recent_slots - failure_slots - regression_slots
+    )
 
     def diverse(values: list[TrialRecord], limit: int, key) -> list[TrialRecord]:
+        if limit <= 0:
+            return []
         chosen: list[TrialRecord] = []
         seen: set[Any] = set()
         for record in values:
@@ -161,7 +179,8 @@ def build_memory(ledger_paths: list[Path], *, max_entries: int = 16) -> dict[str
                     break
         return chosen
 
-    selected = diverse(successes, success_slots, lambda record: record.model_family)
+    selected = list(recent)
+    selected += diverse(successes, success_slots, lambda record: record.model_family)
     selected += diverse(
         regressions,
         regression_slots,
@@ -172,7 +191,23 @@ def build_memory(ledger_paths: list[Path], *, max_entries: int = 16) -> dict[str
         failure_slots,
         lambda record: (record.model_family, record.error_type),
     )
-    selected.sort(key=lambda record: (record.created_at_unix, record.trial_id))
+    deduplicated: list[TrialRecord] = []
+    seen_trials: set[str] = set()
+    for record in selected:
+        if record.trial_id in seen_trials:
+            continue
+        deduplicated.append(record)
+        seen_trials.add(record.trial_id)
+    # Fill any quota lost to overlap while retaining the explicit priority:
+    # newest descendants, strongest/diverse successes, regressions, failures.
+    fallback = [*successes, *regressions, *failures]
+    for record in fallback:
+        if len(deduplicated) >= max_entries:
+            break
+        if record.trial_id not in seen_trials:
+            deduplicated.append(record)
+            seen_trials.add(record.trial_id)
+    selected = deduplicated[:max_entries]
     payload: dict[str, Any] = {
         "schema_version": 1,
         "source": "hash-validated AIDE experiment ledgers",

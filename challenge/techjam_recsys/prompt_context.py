@@ -72,43 +72,44 @@ def _experiment_memory_prompt(value: dict[str, Any], *, max_chars: int) -> str:
         "content_sha256": value.get("content_sha256"),
         "entries": [],
     }
-    for entry in value.get("entries", []):
+    entries = value.get("entries", [])
+    for entry in entries:
         if not isinstance(entry, dict):
             continue
         config = entry.get("configuration") or {}
         compact = {
             "node_id": entry.get("node_id"),
             "parent_trial_id": entry.get("parent_trial_id"),
-            "code_sha256": entry.get("code_sha256"),
             "model_family": entry.get("model_family"),
             "status": entry.get("status"),
             "decision": entry.get("decision"),
             "recovery_outcome": entry.get("recovery_outcome"),
             "outcome": entry.get("outcome"),
             "metrics": entry.get("metrics"),
-            "champion_deltas": entry.get("champion_deltas"),
             "candidate_exec_seconds": entry.get("candidate_exec_seconds"),
             "error_type": entry.get("error_type"),
             "scientific_change": config.get("scientific_change"),
             "change_scope": config.get("change_scope"),
             "preserved_parent_components": list(
                 config.get("preserved_parent_components") or []
-            )[:8],
-            "features": list(config.get("features") or [])[:12],
+            )[:4],
+            "features": list(config.get("features") or [])[:8],
             "losses": config.get("losses"),
             "target_metric": config.get("target_metric"),
-            "expected_metric_effects": config.get("expected_metric_effects"),
-            "risks": list(config.get("risks") or [])[:2],
         }
         candidate = dict(projected)
         candidate["entries"] = [*projected["entries"], compact]
-        rendered = json.dumps(candidate, sort_keys=True, ensure_ascii=True, indent=2)
+        rendered = json.dumps(
+            candidate, sort_keys=True, ensure_ascii=True, separators=(",", ":")
+        )
         if len(rendered) > max_chars:
             break
         projected = candidate
     projected["included_entries"] = len(projected["entries"])
-    projected["available_entries"] = len(value.get("entries", []))
-    return json.dumps(projected, sort_keys=True, ensure_ascii=True, indent=2)
+    projected["available_entries"] = len(entries)
+    return json.dumps(
+        projected, sort_keys=True, ensure_ascii=True, separators=(",", ":")
+    )
 
 
 @dataclass(frozen=True)

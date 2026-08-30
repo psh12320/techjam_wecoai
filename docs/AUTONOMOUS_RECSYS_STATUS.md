@@ -1,6 +1,6 @@
 # Autonomous KuaiRand Recommender Research: Status and Handoff
 
-Last audited: 2026-08-30 (Asia/Singapore), after the GPT-5.6 Sol v22 smoke and v23 debug-contract correction. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
+Last audited: 2026-08-30 (Asia/Singapore), after the GPT-5.6 Sol v23 smoke and v24 six-iteration development dry-run. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
 
 ## Current verdict
 
@@ -10,11 +10,11 @@ Neither result is a fresh frozen-prompt clean-run acceptance. Under the pre-rese
 
 The durable API tracker at [`challenge/private/api_spend.json`](../challenge/private/api_spend.json) reports exactly:
 
-- cumulative estimated cost: **`$9.850409`**;
-- requests: `94`;
-- input tokens: `923191`;
-- output tokens: `488626`;
-- next notification boundary: `$10`.
+- cumulative estimated cost: **`$10.243473`**;
+- requests: `96`;
+- input tokens: `951212`;
+- output tokens: `502675`;
+- next notification boundary: `$20`.
 
 This tracker is machine-private and ignored by Git. The amount above was read from the tracker, not reconstructed from conversation history.
 
@@ -38,6 +38,8 @@ The paid GPT-5.6 Sol v21 smoke (`techjam-aide-v21-sol-smoke`) completed with two
 The audit found that v21 forced two near-duplicate wholesale rich-FM replacements, retained prefix-only vocabularies for the final fit, discarded the proven optimizer/checkpoint recipe, and changed multiple mechanisms simultaneously. Prompt/scheduler v22 now records these nodes as parent-dominated memory, requires a single declared change scope plus preserved parent components, distinguishes internal-prefix preprocessing from an all-training final refit, penalizes parent-dominated families, and permits a second forced rich-FM refinement only when the first attempt improves both metric components. The v22 experiment-memory hash is `0d306458efc85afd6bd27e5d61922c106d41a2e8849144ec5b66dff8b4094e2a`.
 
 The v22 smoke (`techjam-aide-v22-sol-smoke`) spent `$0.371544` over two requests and produced no evaluated generated candidate. Its first card was valid and parent-preserving, but the code passed a CSR one-hot matrix to the organizer `baseline.FM` integer-index API and failed with `IndexError` after five seconds. GPT-5.6 Sol's second response correctly diagnosed the representation bug, but rephrased the locked scientific metadata and was rejected before compute. V23 now publishes the dense-integer organizer API contract, gives debug prompts the exact locked card values to copy verbatim, validates hypothesis and change scope as well as family/change, and freezes both v22 failures into experiment memory hash `7441d07d95782c585266441d14891eadd2caf99071a0c1478b85639afc977ddc`.
+
+The v23 smoke (`techjam-aide-v23-sol-smoke`) spent `$0.393064` over two requests and completed with zero manual interventions. Its first AIDE-generated rich-FM node (`8e7f3fe7d59d4d148c34937032602d4c`) scored GAUC `0.6670841339220689`, nDCG@5 `0.5359480054028259`, primary `0.6015160696624474`: a primary gain of `0.0000473133094884` over the organizer FM, with nDCG improving by `0.0001431248579721` but GAUC regressing by `0.0000484982389954`. The second history-residual node (`5b39a9ae0baf41358e4e0ea42c04211f`) correctly disabled its user-primary-tag posterior residual after the internal parent gate failed and reproduced the first node exactly. This validates non-regressive autonomous fallback, but neither node passes the both-component champion gate. Independent audit found that both programs used a date-only internal split with `695` rows misplaced relative to the canonical strict timestamp boundary. V24 now requires and asserts boundary `1650295266482`, prefix rows `1079102`, and holdout rows `62010`. It also reserves the two newest evaluated descendants in experiment-memory selection and compacts all 16 selected summaries into the actual prompt, preventing the next paid run from omitting the v23 tradeoff/fallback. The corrected memory hash is `1d069625f4c483484cad76a37699d636572d81bbbdc7915a6a55f5eee6e5131e`; the v24 six-iteration development prompt hash is `6035c5eccecdba4801976b345b7967579dcfeb67f89f20f104ee7a632f28a9d4`.
 
 ## Competition objective and official constraints
 
@@ -393,7 +395,7 @@ The clean command starts from the organizer seed and uses only the frozen prompt
 
 ## Current limitations and prioritized next work
 
-1. **Run the bounded v23 GPT-5.6 Sol smoke.** Confirm the dense-integer FM contract, verbatim locked debug fields, corrected final-fit preprocessing, and compact cost summary under the `$0.50` ceiling.
+1. **Run the bounded six-iteration v24 GPT-5.6 Sol development campaign.** Its static dry-run is valid, contains all 16 frozen experiment summaries, and its worst-case API envelope is `$1.68`, within the `$2` development ceiling.
 2. **Stabilize the fastest rich-FM/DCN/history backbone.** Reproduce it comfortably under timeout and checkpoint on the exact emitted prediction. Resolve v20's seed-0 replay mismatch before adding complexity.
 3. **Prioritize the literature/EDA-backed duration branch.** Preserve the successful RAD direction, then compare one cached D2Q auxiliary inside the same training loop; do not add a second model/refit stage.
 4. **Build an nDCG@5 specialist.** Preserve the GAUC backbone, then test a tiny same-user BCE-dominant Lambda@5 residual or conservative normalized blend.

@@ -1,6 +1,391 @@
 {
-  "content_sha256": "7441d07d95782c585266441d14891eadd2caf99071a0c1478b85639afc977ddc",
+  "content_sha256": "1d069625f4c483484cad76a37699d636572d81bbbdc7915a6a55f5eee6e5131e",
   "entries": [
+    {
+      "assignment_family": "history_residual",
+      "candidate_exec_seconds": 208.2857542037964,
+      "champion_deltas": {
+        "GAUC": -0.003967666936557923,
+        "nDCG@5": -0.0020662462891145594,
+        "primary": -0.003016956612836297
+      },
+      "code_sha256": "be6aacf8a6918b11f5d109dd3e3bfb69497112eac006cc1cdda56173060da14f",
+      "configuration": {
+        "abort_criteria": [
+          "On the same last-three-training-days split, disable the history residual unless it improves primary by at least 0.00005 and reduces neither GAUC nor nDCG@5 by more than 0.0001 relative to the selected preserved parent representation."
+        ],
+        "change_scope": "architecture",
+        "eda_observation_ids": [
+          "candidate_aware_history_support",
+          "temporal_drift"
+        ],
+        "estimated_memory_mb": 2100,
+        "estimated_runtime_seconds": 650,
+        "expected_metric_effects": {
+          "GAUC": "+0.0001 to +0.0008",
+          "nDCG@5": "+0.0001 to +0.0005",
+          "primary": "+0.0001 to +0.0006"
+        },
+        "falsification_condition": "The hypothesis is falsified if the history residual fails its same-split parent-relative acceptance rule or external evaluation does not improve both GAUC and nDCG@5.",
+        "features": [
+          "user_id",
+          "video_id",
+          "author_id",
+          "tab",
+          "duration_bucket",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "tag_2",
+          "video_type",
+          "upload_type",
+          "user_active_degree",
+          "follow_user_num_range",
+          "strictly earlier user long-view rate",
+          "strictly earlier user-primary_tag long-view rate",
+          "user-primary_tag posterior log-odds residual"
+        ],
+        "fidelity": "full",
+        "hyperparameters": {
+          "batch_size": 8192,
+          "early_stopping_patience": 3,
+          "embedding_dimension": 16,
+          "history_log_odds_clip": 1.5,
+          "history_prior_strength": 12.0,
+          "history_residual_scale": 0.18,
+          "learning_rate": 0.001,
+          "maximum_internal_epochs": 10,
+          "seed": 0
+        },
+        "internal_validation": {
+          "history_state": "For holdout scoring, aggregate outcomes only from the earlier training prefix; for public validation, rebuild state from all and only train.csv.",
+          "parent_comparison": "Compare raw rich-FM predictions and the fixed scaled history-residual predictions at the identical selected epoch and on the identical holdout rows.",
+          "preprocessing": "Fit categorical vocabularies exclusively on the chronological prefix during internal comparison and rebuild them from all train.csv rows for final fitting.",
+          "public_validation_usage": "Public validation labels are never loaded or used for fitting, selection, preprocessing, or history state.",
+          "split": "last_3_train_days"
+        },
+        "literature_citation_ids": [],
+        "losses": {
+          "history_residual": "nonparametric Bayesian posterior log-odds correction; no validation labels and no additional fitted loss",
+          "primary": "organizer FM binary cross-entropy on long_view",
+          "regularization": "12-impression user-rate prior plus clipped residual and fixed scale 0.18"
+        },
+        "model_family": "history_residual",
+        "preserved_parent_components": [
+          "organizer baseline.FM implementation",
+          "16-dimensional FM embeddings",
+          "learning rate 0.001",
+          "randomly shuffled 8192-row minibatches",
+          "binary long_view supervision",
+          "seed-0 deterministic training",
+          "train-fitted rich categorical representation",
+          "chronological last-three-training-days epoch selection",
+          "parent-relative rich-feature fallback rule"
+        ],
+        "risks": [
+          "Sparse user-tag histories can introduce noisy corrections despite Bayesian shrinkage.",
+          "The fixed residual scale may improve GAUC while slightly perturbing top-five ordering.",
+          "User-tag aggregation increases peak memory and runtime."
+        ],
+        "scientific_change": "Add a conservatively scaled candidate-aware user-tag long-view history residual to the preserved rich-FM score, using only outcomes from the chronological training prefix and shrinking each user-tag rate toward that user's historical rate.",
+        "target_metric": "primary subject to non-decreasing GAUC and nDCG@5"
+      },
+      "decision": "evaluated",
+      "error_type": null,
+      "metrics": {
+        "GAUC": 0.6670841339220689,
+        "nDCG@5": 0.5359480054028259,
+        "primary": 0.6015160696624474
+      },
+      "model_family": "history_residual",
+      "node_id": "5b39a9ae0baf41358e4e0ea42c04211f",
+      "outcome": "component_tradeoff",
+      "parent_trial_id": "1e17f32619f342da84494c6f948e074f",
+      "recovery_outcome": null,
+      "source_record_sha256": "13d1367c8078753052c779c88164cf08fdbd1795880ee974757b89cdc144cb3e",
+      "status": "success",
+      "trial_id": "c5aa786e20a34457ba4ade67c5be53bd",
+      "wall_seconds": 354.1281957626343
+    },
+    {
+      "assignment_family": "rich_fm",
+      "candidate_exec_seconds": 197.6269257068634,
+      "champion_deltas": {
+        "GAUC": -0.003967666936557923,
+        "nDCG@5": -0.0020662462891145594,
+        "primary": -0.003016956612836297
+      },
+      "code_sha256": "45b5c3050b1acadc0c5bb52c05767406f7a0152e120312918e235651d63a8d5b",
+      "configuration": {
+        "abort_criteria": [
+          "On the same last-three-training-days split, revert to the preserved parent feature set if rich FM improves primary by less than 0.0001 or reduces either component by more than 0.0002."
+        ],
+        "change_scope": "features",
+        "eda_observation_ids": [
+          "cold_start",
+          "temporal_drift"
+        ],
+        "estimated_memory_mb": 1900,
+        "estimated_runtime_seconds": 620,
+        "expected_metric_effects": {
+          "GAUC": "+0.0025 to +0.0050",
+          "nDCG@5": "+0.0010 to +0.0030",
+          "primary": "+0.0018 to +0.0040"
+        },
+        "falsification_condition": "The hypothesis is falsified if the rich FM fails the parent-relative internal acceptance rule, or if external evaluation does not improve both GAUC and nDCG@5.",
+        "features": [
+          "user_id",
+          "video_id",
+          "author_id",
+          "tab",
+          "duration_bucket",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "tag_2",
+          "video_type",
+          "upload_type",
+          "user_active_degree",
+          "follow_user_num_range"
+        ],
+        "fidelity": "full",
+        "hyperparameters": {
+          "batch_size": 8192,
+          "early_stopping_patience": 3,
+          "embedding_dimension": 16,
+          "learning_rate": 0.001,
+          "maximum_internal_epochs": 10,
+          "seed": 0,
+          "unknown_category_policy": "one train-fitted unknown index per field"
+        },
+        "internal_validation": {
+          "parent_comparison": "Train the parent and rich representations independently with identical optimizer, seed, batches, split and stopping rule.",
+          "preprocessing": "Fit every vocabulary exclusively on the chronological training prefix; rebuild all vocabularies from all train.csv rows before the public-validation fit.",
+          "public_validation_usage": "Validation labels are never loaded or used for fitting, selection, preprocessing, or history state.",
+          "split": "last_3_train_days"
+        },
+        "literature_citation_ids": [],
+        "losses": {
+          "primary": "organizer FM binary cross-entropy on long_view",
+          "regularization": "unchanged organizer baseline.FM regularization"
+        },
+        "model_family": "rich_fm",
+        "preserved_parent_components": [
+          "organizer baseline.FM implementation",
+          "16-dimensional FM embeddings",
+          "learning rate 0.001",
+          "randomly shuffled 8192-row minibatches",
+          "binary long_view supervision",
+          "seed-0 deterministic training"
+        ],
+        "risks": [
+          "Additional sparse fields can dilute strong user-video interactions or overfit rare metadata values.",
+          "The last-three-days split may select a slightly suboptimal epoch under temporal drift.",
+          "Metadata joins and categorical encoding increase peak memory."
+        ],
+        "scientific_change": "Replace the organizer FM's ID-only categorical representation with a train-fitted rich multi-field representation adding static author, tag and user metadata plus compact hour and duration context fields.",
+        "target_metric": "primary subject to non-decreasing GAUC and nDCG@5"
+      },
+      "decision": "evaluated",
+      "error_type": null,
+      "metrics": {
+        "GAUC": 0.6670841339220689,
+        "nDCG@5": 0.5359480054028259,
+        "primary": 0.6015160696624474
+      },
+      "model_family": "rich_fm",
+      "node_id": "8e7f3fe7d59d4d148c34937032602d4c",
+      "outcome": "component_tradeoff",
+      "parent_trial_id": "61856d62c4f94bce902cebbfff175dec",
+      "recovery_outcome": null,
+      "source_record_sha256": "deeb49204034be9dec255ebbeb928f0119cdf4a964510be36c4e3fb80ba00da0",
+      "status": "success",
+      "trial_id": "1e17f32619f342da84494c6f948e074f",
+      "wall_seconds": 322.217166185379
+    },
+    {
+      "assignment_family": "duration_auxiliary",
+      "candidate_exec_seconds": 478.41574478149414,
+      "champion_deltas": {
+        "GAUC": 0.001089143872737286,
+        "nDCG@5": 0.00019244497965031915,
+        "primary": 0.0006407944261936915
+      },
+      "code_sha256": "af1d718edf4ea99c70b4aabc6157e43884d180b546ae16901c8f78cce45790ae",
+      "configuration": {
+        "estimated_runtime_seconds": 870,
+        "expected_metric_effects": {
+          "GAUC": "+0.0001 to +0.0006 vs history parent through rank-diverse RAD blend",
+          "nDCG@5": "+0.0001 to +0.0004 vs history parent through fixed 0.45/0.45/0.10 within-user rank blend"
+        },
+        "features": [
+          "user_id",
+          "video_id",
+          "author_id",
+          "tab",
+          "duration_bucket",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "tag_2",
+          "user_active_degree",
+          "follow_user_num_range",
+          "register_days_range",
+          "music_id",
+          "music_type",
+          "video_type",
+          "upload_type",
+          "aspect_ratio_bucket",
+          "hist_prior_exposure_bin_std",
+          "hist_prior_long_view_bin_std",
+          "hist_recent_long_view_age_bin_std",
+          "hist_seen_video_std",
+          "hist_seen_author_std",
+          "hist_seen_primary_tag_std",
+          "hist_trailing24h_exposure_bin_std",
+          "hist_trailing24h_long_view_bin_std"
+        ],
+        "hyperparameters": {
+          "batch_size": 8192,
+          "dropout": 0.1,
+          "embedding_dim": 16,
+          "epochs": 12,
+          "gate_l2": 0.001,
+          "history_hidden": 32,
+          "lr": 0.001,
+          "patience": 4,
+          "rad_input_dim": 72,
+          "rad_loss_weight": 0.1,
+          "threads": 4,
+          "valid_batch_size": 32768,
+          "weight_decay": 1e-06
+        },
+        "losses": {
+          "auxiliary": "0.10 * SmoothL1(sigmoid(rad_logit), rad_target, beta=0.10) with detached DCN-MLP/history inputs",
+          "main": "BCEWithLogitsLoss on final history exit for long_view",
+          "regularization": "Adam weight_decay=1e-6 plus 1e-3 * sum(field_gate^2)"
+        },
+        "model_family": "duration_auxiliary",
+        "risks": [
+          "Chronological history generation and RAD target construction must remain vectorized enough to finish within the time budget.",
+          "The detached RAD head may add diversity mainly through the final rank blend; if the auxiliary target is noisy, gains can be small on this seed.",
+          "Within-user percentile-rank blending can improve nDCG more than GAUC, so checkpoint variance remains possible despite preserving the parent backbone."
+        ]
+      },
+      "decision": "confirmed",
+      "error_type": null,
+      "metrics": {
+        "GAUC": 0.6721409447313641,
+        "nDCG@5": 0.5382066966715908,
+        "primary": 0.6051738207014774
+      },
+      "model_family": "duration_auxiliary",
+      "node_id": "7b0ef1fe04d5440a8916975d1d9dca4f",
+      "outcome": "component_tradeoff",
+      "parent_trial_id": "df50a5e5bb8f4ecfa463f80e67e6f47c",
+      "recovery_outcome": null,
+      "source_record_sha256": "6c75e1a0d06727839eb99265011d8a76e405e7e9f4249f51eda0b2173d5b53d4",
+      "status": "confirmed",
+      "trial_id": "8d907bc439104c349dac6188b811362e",
+      "wall_seconds": 482.14734864234924
+    },
+    {
+      "assignment_family": "history_residual",
+      "candidate_exec_seconds": null,
+      "champion_deltas": {
+        "GAUC": 0.00044494087200064314,
+        "nDCG@5": 8.7183364109511e-05,
+        "primary": 0.00026606211805502156
+      },
+      "code_sha256": "9e09d0ca7e48576f440b352e73024ed2bdb19b486f09d971f5bd05b283aeec55",
+      "configuration": {
+        "estimated_runtime_seconds": 870,
+        "expected_metric_effects": {
+          "GAUC": "+0.0001 to +0.0006",
+          "nDCG@5": "+0.0000 to +0.0004"
+        },
+        "features": [
+          "user_id",
+          "video_id",
+          "author_id",
+          "tab",
+          "duration_bucket",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "tag_2",
+          "user_active_degree",
+          "follow_user_num_range",
+          "register_days_range",
+          "music_id",
+          "music_type",
+          "video_type",
+          "upload_type",
+          "aspect_ratio_bucket",
+          "hist_prev_exposure_bin",
+          "hist_prev_long_view_bin",
+          "hist_recent_long_view_bin",
+          "hist_seen_video",
+          "hist_seen_author",
+          "hist_seen_primary_tag",
+          "hist_day_exposure_bin",
+          "hist_day_long_view_bin"
+        ],
+        "hyperparameters": {
+          "batch_size": 8192,
+          "cross_layers": 2,
+          "dcn_hidden_dims": [
+            128,
+            64
+          ],
+          "dropout": 0.1,
+          "embedding_dim": 16,
+          "epochs": 40,
+          "history_mlp_hidden": [
+            32
+          ],
+          "learning_rate": 0.001,
+          "patience": 4,
+          "residual_cap": 0.3,
+          "residual_init": 0.05,
+          "threads": 4,
+          "weight_decay": 1e-06
+        },
+        "losses": {
+          "primary": "binary_cross_entropy",
+          "regularization": {
+            "gate_l2": 0.001,
+            "optimizer_weight_decay": 1e-06
+          }
+        },
+        "model_family": "history_residual",
+        "risks": [
+          "Strict chronological history generation may be CPU-heavy if not vectorized enough.",
+          "Added history residual can overfit validation and reduce nDCG if the residual becomes too influential.",
+          "History bins are deliberately coarse; if the parent already captures most user preference structure, gains may be small."
+        ]
+      },
+      "decision": "confirmed",
+      "error_type": null,
+      "metrics": {
+        "GAUC": 0.6714967417306275,
+        "nDCG@5": 0.53810143505605,
+        "primary": 0.6047990883933387
+      },
+      "model_family": "history_residual",
+      "node_id": "6740138b15454ed1b8718dc7c7178372",
+      "outcome": "component_tradeoff",
+      "parent_trial_id": "b2dc34b5296e4e19a862bf861bb4920d",
+      "recovery_outcome": null,
+      "source_record_sha256": "c9463b62979c1e94fc616c087895c517c5e0c4025ed145d573d14f1ca4804211",
+      "status": "confirmed",
+      "trial_id": "e94714ae8f8b4b53bd83f3a085c76c90",
+      "wall_seconds": 738.3819790000562
+    },
     {
       "assignment_family": "dcn_v2",
       "candidate_exec_seconds": null,
@@ -85,19 +470,121 @@
       "wall_seconds": 600.8139262999175
     },
     {
-      "assignment_family": "history_residual",
-      "candidate_exec_seconds": null,
+      "assignment_family": "rich_fm",
+      "candidate_exec_seconds": 379.66877841949463,
       "champion_deltas": {
-        "GAUC": 0.00044494087200064314,
-        "nDCG@5": 8.7183364109511e-05,
-        "primary": 0.00026606211805502156
+        "GAUC": -0.0004963074025582381,
+        "nDCG@5": -0.0004761851904090397,
+        "primary": -0.00048624629648363893
       },
-      "code_sha256": "9e09d0ca7e48576f440b352e73024ed2bdb19b486f09d971f5bd05b283aeec55",
+      "code_sha256": "5e6f68dacb9f242786ab998bd9900a3fdfd2534ae6cc0644ac8a581ec0acb889",
+      "configuration": {
+        "estimated_runtime_seconds": 520,
+        "expected_metric_effects": {
+          "GAUC": "+0.0030 to +0.0045",
+          "nDCG@5": "+0.0015 to +0.0025"
+        },
+        "features": [
+          "user_id",
+          "video_id",
+          "author_id",
+          "tab",
+          "duration_bucket",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "tag_2",
+          "user_active_degree",
+          "follow_user_num_range",
+          "register_days_range",
+          "music_id",
+          "music_type",
+          "video_type",
+          "upload_type",
+          "aspect_ratio_bucket"
+        ],
+        "hyperparameters": {
+          "batch_size": 8192,
+          "embedding_dim": 16,
+          "epochs": 40,
+          "lr": 0.001,
+          "optimizer": "Adam",
+          "patience": 4,
+          "threads": 4,
+          "weight_decay": 1e-06
+        },
+        "losses": {
+          "primary": "binary_cross_entropy",
+          "regularization": "gate_l2_only_1e-3"
+        },
+        "model_family": "rich_fm",
+        "risks": [
+          "Rich feature joins or vocab building may drift from the exact proven transforms if not implemented carefully.",
+          "Single-table offset encoding increases sensitivity to field-order mistakes.",
+          "Validation-based checkpointing can underperform if score computation or unknown handling differs from the intended milestone recipe."
+        ]
+      },
+      "decision": "evaluated",
+      "error_type": null,
+      "metrics": {
+        "GAUC": 0.6705554934560686,
+        "nDCG@5": 0.5375380665015315,
+        "primary": 0.6040467799788001
+      },
+      "model_family": "rich_fm",
+      "node_id": "e4bfd31d6f5443ab836ecc1b45f16706",
+      "outcome": "improved_both_components",
+      "parent_trial_id": "5dfa082dd0f34a83bb995aa1dc2e580f",
+      "recovery_outcome": null,
+      "source_record_sha256": "21d17de127c74277f909ed8c711ba09cf28d76da07fcc3293b6d7256ec6e51c4",
+      "status": "success",
+      "trial_id": "0063a1b30a274942b50b7cdaef0e786b",
+      "wall_seconds": 414.48038387298584
+    },
+    {
+      "assignment_family": "official_fm_seed",
+      "candidate_exec_seconds": 100.11040568351746,
+      "champion_deltas": {
+        "GAUC": -0.003919168697562481,
+        "nDCG@5": -0.002209371147086747,
+        "primary": -0.0030642699223246694
+      },
+      "code_sha256": "6c75d29c35ebb9b7ad35fe1517ee5efcdecd7aac07a8b94d760ef7ff347e84d3",
+      "configuration": {
+        "model_family": "official_fm_seed"
+      },
+      "decision": "accepted_as_ancestry_root",
+      "error_type": null,
+      "metrics": {
+        "GAUC": 0.6671326321610643,
+        "nDCG@5": 0.5358048805448538,
+        "primary": 0.601468756352959
+      },
+      "model_family": "official_fm_seed",
+      "node_id": "dcec9971ac3a4d3ab2b73e5325aad2b1",
+      "outcome": "evaluated",
+      "parent_trial_id": null,
+      "recovery_outcome": null,
+      "source_record_sha256": "ff33e2de8c8f140156775bdde32ac618a18a808718b2e6569ca305c973336ee2",
+      "status": "success",
+      "trial_id": "61856d62c4f94bce902cebbfff175dec",
+      "wall_seconds": 126.06324481964111
+    },
+    {
+      "assignment_family": "duration_auxiliary",
+      "candidate_exec_seconds": 447.7023272514343,
+      "champion_deltas": {
+        "GAUC": 0.001089143872737286,
+        "nDCG@5": 0.00019244497965031915,
+        "primary": 0.0006407944261936915
+      },
+      "code_sha256": "af1d718edf4ea99c70b4aabc6157e43884d180b546ae16901c8f78cce45790ae",
       "configuration": {
         "estimated_runtime_seconds": 870,
         "expected_metric_effects": {
-          "GAUC": "+0.0001 to +0.0006",
-          "nDCG@5": "+0.0000 to +0.0004"
+          "GAUC": "+0.0001 to +0.0006 vs history parent through rank-diverse RAD blend",
+          "nDCG@5": "+0.0001 to +0.0004 vs history parent through fixed 0.45/0.45/0.10 within-user rank blend"
         },
         "features": [
           "user_id",
@@ -118,65 +605,58 @@
           "video_type",
           "upload_type",
           "aspect_ratio_bucket",
-          "hist_prev_exposure_bin",
-          "hist_prev_long_view_bin",
-          "hist_recent_long_view_bin",
-          "hist_seen_video",
-          "hist_seen_author",
-          "hist_seen_primary_tag",
-          "hist_day_exposure_bin",
-          "hist_day_long_view_bin"
+          "hist_prior_exposure_bin_std",
+          "hist_prior_long_view_bin_std",
+          "hist_recent_long_view_age_bin_std",
+          "hist_seen_video_std",
+          "hist_seen_author_std",
+          "hist_seen_primary_tag_std",
+          "hist_trailing24h_exposure_bin_std",
+          "hist_trailing24h_long_view_bin_std"
         ],
         "hyperparameters": {
           "batch_size": 8192,
-          "cross_layers": 2,
-          "dcn_hidden_dims": [
-            128,
-            64
-          ],
           "dropout": 0.1,
           "embedding_dim": 16,
-          "epochs": 40,
-          "history_mlp_hidden": [
-            32
-          ],
-          "learning_rate": 0.001,
+          "epochs": 12,
+          "gate_l2": 0.001,
+          "history_hidden": 32,
+          "lr": 0.001,
           "patience": 4,
-          "residual_cap": 0.3,
-          "residual_init": 0.05,
+          "rad_input_dim": 72,
+          "rad_loss_weight": 0.1,
           "threads": 4,
+          "valid_batch_size": 32768,
           "weight_decay": 1e-06
         },
         "losses": {
-          "primary": "binary_cross_entropy",
-          "regularization": {
-            "gate_l2": 0.001,
-            "optimizer_weight_decay": 1e-06
-          }
+          "auxiliary": "0.10 * SmoothL1(sigmoid(rad_logit), rad_target, beta=0.10) with detached DCN-MLP/history inputs",
+          "main": "BCEWithLogitsLoss on final history exit for long_view",
+          "regularization": "Adam weight_decay=1e-6 plus 1e-3 * sum(field_gate^2)"
         },
-        "model_family": "history_residual",
+        "model_family": "duration_auxiliary",
         "risks": [
-          "Strict chronological history generation may be CPU-heavy if not vectorized enough.",
-          "Added history residual can overfit validation and reduce nDCG if the residual becomes too influential.",
-          "History bins are deliberately coarse; if the parent already captures most user preference structure, gains may be small."
+          "Chronological history generation and RAD target construction must remain vectorized enough to finish within the time budget.",
+          "The detached RAD head may add diversity mainly through the final rank blend; if the auxiliary target is noisy, gains can be small on this seed.",
+          "Within-user percentile-rank blending can improve nDCG more than GAUC, so checkpoint variance remains possible despite preserving the parent backbone."
         ]
       },
       "decision": "evaluated",
       "error_type": null,
       "metrics": {
-        "GAUC": 0.6714967417306275,
-        "nDCG@5": 0.53810143505605,
-        "primary": 0.6047990883933387
+        "GAUC": 0.6721409447313641,
+        "nDCG@5": 0.5382066966715908,
+        "primary": 0.6051738207014774
       },
-      "model_family": "history_residual",
-      "node_id": "944d723d090f4f19a292f922c356f58f",
-      "outcome": "component_tradeoff",
-      "parent_trial_id": "eccb9fffcf384e34be5cb2273d0c4a01",
+      "model_family": "duration_auxiliary",
+      "node_id": "9ed3ba4cb3294944919c8b8fb8d3eb09",
+      "outcome": "improved_both_components",
+      "parent_trial_id": "7bb9bba284274dc190b2453162f721e5",
       "recovery_outcome": null,
-      "source_record_sha256": "d09f25d3feccaa4f04b63aa4bbf506a41e26a04c23028181f48814fecd37ff23",
+      "source_record_sha256": "c69a5234338f1039a19732e0db8e380189c3c1b0812e5e9eefaa91c328f47d00",
       "status": "success",
-      "trial_id": "b2dc34b5296e4e19a862bf861bb4920d",
-      "wall_seconds": 622.8121859999374
+      "trial_id": "df50a5e5bb8f4ecfa463f80e67e6f47c",
+      "wall_seconds": 488.73219561576843
     },
     {
       "assignment_family": "ensemble",
@@ -277,18 +757,18 @@
     },
     {
       "assignment_family": "history_residual",
-      "candidate_exec_seconds": null,
+      "candidate_exec_seconds": 671.6772964000702,
       "champion_deltas": {
-        "GAUC": 0.00044494087200064314,
-        "nDCG@5": 8.7183364109511e-05,
-        "primary": 0.00026606211805502156
+        "GAUC": 0.00027535932599231927,
+        "nDCG@5": -0.00010806674414354234,
+        "primary": 8.364629092438847e-05
       },
-      "code_sha256": "9e09d0ca7e48576f440b352e73024ed2bdb19b486f09d971f5bd05b283aeec55",
+      "code_sha256": "0f405534288ba4ccd31249c2f725900edbae019c6ccb5ed44cf601e28e2c75f3",
       "configuration": {
-        "estimated_runtime_seconds": 870,
+        "estimated_runtime_seconds": 660,
         "expected_metric_effects": {
-          "GAUC": "+0.0001 to +0.0006",
-          "nDCG@5": "+0.0000 to +0.0004"
+          "GAUC": "+0.0000 to +0.0004 vs DCN parent",
+          "nDCG@5": "+0.0001 to +0.0004 vs DCN parent"
         },
         "features": [
           "user_id",
@@ -309,312 +789,58 @@
           "video_type",
           "upload_type",
           "aspect_ratio_bucket",
-          "hist_prev_exposure_bin",
-          "hist_prev_long_view_bin",
+          "hist_prior_exposure_bin",
+          "hist_prior_long_view_bin",
           "hist_recent_long_view_bin",
           "hist_seen_video",
           "hist_seen_author",
           "hist_seen_primary_tag",
-          "hist_day_exposure_bin",
-          "hist_day_long_view_bin"
+          "hist_24h_exposure_bin",
+          "hist_24h_long_view_bin"
         ],
         "hyperparameters": {
           "batch_size": 8192,
-          "cross_layers": 2,
-          "dcn_hidden_dims": [
-            128,
-            64
-          ],
           "dropout": 0.1,
           "embedding_dim": 16,
-          "epochs": 40,
-          "history_mlp_hidden": [
-            32
-          ],
+          "epochs": 12,
+          "history_hidden_dim": 32,
           "learning_rate": 0.001,
+          "min_improvement": 1e-05,
           "patience": 4,
           "residual_cap": 0.3,
-          "residual_init": 0.05,
+          "residual_raw_init": -2.9444389791664403,
           "threads": 4,
+          "valid_batch_size": 32768,
           "weight_decay": 1e-06
         },
         "losses": {
-          "primary": "binary_cross_entropy",
-          "regularization": {
-            "gate_l2": 0.001,
-            "optimizer_weight_decay": 1e-06
-          }
+          "auxiliary": "none",
+          "main": "binary_cross_entropy_with_logits on final history residual output",
+          "regularization": "1e-3 * sum(field_gate^2)"
         },
         "model_family": "history_residual",
         "risks": [
-          "Strict chronological history generation may be CPU-heavy if not vectorized enough.",
-          "Added history residual can overfit validation and reduce nDCG if the residual becomes too influential.",
-          "History bins are deliberately coarse; if the parent already captures most user preference structure, gains may be small."
+          "Strict chronological history construction is easy to leak if equal-(user,time_ms) groups are not buffered before updates.",
+          "The added history residual can improve nDCG but still regress if train-only standardization or frozen-validation state is implemented incorrectly.",
+          "This branch is closer to the resource limit because it retrains the full DCN parent and adds history feature generation."
         ]
       },
       "decision": "confirmed",
       "error_type": null,
       "metrics": {
-        "GAUC": 0.6714967417306275,
-        "nDCG@5": 0.53810143505605,
-        "primary": 0.6047990883933387
+        "GAUC": 0.6713271601846191,
+        "nDCG@5": 0.537906184947797,
+        "primary": 0.6046166725662081
       },
       "model_family": "history_residual",
-      "node_id": "6740138b15454ed1b8718dc7c7178372",
-      "outcome": "component_tradeoff",
-      "parent_trial_id": "b2dc34b5296e4e19a862bf861bb4920d",
+      "node_id": "9be4f52241174dbe92556f2c258dcf24",
+      "outcome": "parent_dominated",
+      "parent_trial_id": "28599f9f0a084668b15e4e2c609f1120",
       "recovery_outcome": null,
-      "source_record_sha256": "c9463b62979c1e94fc616c087895c517c5e0c4025ed145d573d14f1ca4804211",
+      "source_record_sha256": "440640bc01318dd8242a112bbbccd1cac51697e1a643921300fa55868f9528d3",
       "status": "confirmed",
-      "trial_id": "e94714ae8f8b4b53bd83f3a085c76c90",
-      "wall_seconds": 738.3819790000562
-    },
-    {
-      "assignment_family": "dcn_v2",
-      "candidate_exec_seconds": 900.0,
-      "champion_deltas": null,
-      "code_sha256": "ef0bfecbee5ab6990667c02a79d6c66b7e1215fbc86503d146aff52388e55645",
-      "configuration": {
-        "estimated_runtime_seconds": 820,
-        "expected_metric_effects": {
-          "GAUC": "+0.0007 to +0.0014 over rich FM",
-          "nDCG@5": "+0.0003 to +0.0007 over rich FM"
-        },
-        "features": [
-          "user_id",
-          "video_id",
-          "author_id",
-          "tab",
-          "duration_bucket",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "tag_2",
-          "user_active_degree",
-          "follow_user_num_range",
-          "register_days_range",
-          "music_id",
-          "music_type",
-          "video_type",
-          "upload_type",
-          "aspect_ratio_bucket"
-        ],
-        "hyperparameters": {
-          "batch_size": 8192,
-          "dcn_hidden": [
-            128,
-            64
-          ],
-          "dropout": 0.1,
-          "embedding_dim": 16,
-          "epochs": 40,
-          "lr": 0.001,
-          "optimizer": "Adam",
-          "patience": 4,
-          "raw_scale_init": -2.9444389791664403,
-          "residual_scale_cap": 0.3,
-          "valid_batch_size": 32768,
-          "weight_decay": 1e-06
-        },
-        "losses": {
-          "architecture": "FM logit plus gated DCN residual with two vector-weight cross layers and a 288->128->64 MLP",
-          "main": "BCEWithLogitsLoss on long_view",
-          "regularization": "1e-3 * sum(field_gate^2) with Adam weight_decay=1e-6"
-        },
-        "model_family": "dcn_v2",
-        "risks": [
-          "Exact DCN reproduction is sensitive to field order, bucketization, and initialization; small drift can erase gains.",
-          "The wider model may overfit validation if the residual grows too quickly, though the small initialized gate mitigates this.",
-          "Embedding plus dense residual increases CPU time relative to rich FM and leaves less slack if IO is slow."
-        ]
-      },
-      "decision": "repair_pending",
-      "error_type": "TimeoutError",
-      "metrics": null,
-      "model_family": "dcn_v2",
-      "node_id": "3642969feca94c678b58151ec57b0bc5",
-      "outcome": "execution_failure",
-      "parent_trial_id": "c07ea76997d14cba8fd1a3715972db10",
-      "recovery_outcome": null,
-      "source_record_sha256": "2c115ef03ca363ee0b97d7790a1e395b80811f97f6877e9340d1e9e135e5f1ed",
-      "status": "failed",
-      "trial_id": "f5c88cd2478a4ecc8e6bdde2dbafdea5",
-      "wall_seconds": 3199.5196974277496
-    },
-    {
-      "assignment_family": "duration_auxiliary",
-      "candidate_exec_seconds": 447.7023272514343,
-      "champion_deltas": {
-        "GAUC": 0.001089143872737286,
-        "nDCG@5": 0.00019244497965031915,
-        "primary": 0.0006407944261936915
-      },
-      "code_sha256": "af1d718edf4ea99c70b4aabc6157e43884d180b546ae16901c8f78cce45790ae",
-      "configuration": {
-        "estimated_runtime_seconds": 870,
-        "expected_metric_effects": {
-          "GAUC": "+0.0001 to +0.0006 vs history parent through rank-diverse RAD blend",
-          "nDCG@5": "+0.0001 to +0.0004 vs history parent through fixed 0.45/0.45/0.10 within-user rank blend"
-        },
-        "features": [
-          "user_id",
-          "video_id",
-          "author_id",
-          "tab",
-          "duration_bucket",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "tag_2",
-          "user_active_degree",
-          "follow_user_num_range",
-          "register_days_range",
-          "music_id",
-          "music_type",
-          "video_type",
-          "upload_type",
-          "aspect_ratio_bucket",
-          "hist_prior_exposure_bin_std",
-          "hist_prior_long_view_bin_std",
-          "hist_recent_long_view_age_bin_std",
-          "hist_seen_video_std",
-          "hist_seen_author_std",
-          "hist_seen_primary_tag_std",
-          "hist_trailing24h_exposure_bin_std",
-          "hist_trailing24h_long_view_bin_std"
-        ],
-        "hyperparameters": {
-          "batch_size": 8192,
-          "dropout": 0.1,
-          "embedding_dim": 16,
-          "epochs": 12,
-          "gate_l2": 0.001,
-          "history_hidden": 32,
-          "lr": 0.001,
-          "patience": 4,
-          "rad_input_dim": 72,
-          "rad_loss_weight": 0.1,
-          "threads": 4,
-          "valid_batch_size": 32768,
-          "weight_decay": 1e-06
-        },
-        "losses": {
-          "auxiliary": "0.10 * SmoothL1(sigmoid(rad_logit), rad_target, beta=0.10) with detached DCN-MLP/history inputs",
-          "main": "BCEWithLogitsLoss on final history exit for long_view",
-          "regularization": "Adam weight_decay=1e-6 plus 1e-3 * sum(field_gate^2)"
-        },
-        "model_family": "duration_auxiliary",
-        "risks": [
-          "Chronological history generation and RAD target construction must remain vectorized enough to finish within the time budget.",
-          "The detached RAD head may add diversity mainly through the final rank blend; if the auxiliary target is noisy, gains can be small on this seed.",
-          "Within-user percentile-rank blending can improve nDCG more than GAUC, so checkpoint variance remains possible despite preserving the parent backbone."
-        ]
-      },
-      "decision": "evaluated",
-      "error_type": null,
-      "metrics": {
-        "GAUC": 0.6721409447313641,
-        "nDCG@5": 0.5382066966715908,
-        "primary": 0.6051738207014774
-      },
-      "model_family": "duration_auxiliary",
-      "node_id": "9ed3ba4cb3294944919c8b8fb8d3eb09",
-      "outcome": "improved_both_components",
-      "parent_trial_id": "7bb9bba284274dc190b2453162f721e5",
-      "recovery_outcome": null,
-      "source_record_sha256": "c69a5234338f1039a19732e0db8e380189c3c1b0812e5e9eefaa91c328f47d00",
-      "status": "success",
-      "trial_id": "df50a5e5bb8f4ecfa463f80e67e6f47c",
-      "wall_seconds": 488.73219561576843
-    },
-    {
-      "assignment_family": "duration_auxiliary",
-      "candidate_exec_seconds": 478.41574478149414,
-      "champion_deltas": {
-        "GAUC": 0.001089143872737286,
-        "nDCG@5": 0.00019244497965031915,
-        "primary": 0.0006407944261936915
-      },
-      "code_sha256": "af1d718edf4ea99c70b4aabc6157e43884d180b546ae16901c8f78cce45790ae",
-      "configuration": {
-        "estimated_runtime_seconds": 870,
-        "expected_metric_effects": {
-          "GAUC": "+0.0001 to +0.0006 vs history parent through rank-diverse RAD blend",
-          "nDCG@5": "+0.0001 to +0.0004 vs history parent through fixed 0.45/0.45/0.10 within-user rank blend"
-        },
-        "features": [
-          "user_id",
-          "video_id",
-          "author_id",
-          "tab",
-          "duration_bucket",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "tag_2",
-          "user_active_degree",
-          "follow_user_num_range",
-          "register_days_range",
-          "music_id",
-          "music_type",
-          "video_type",
-          "upload_type",
-          "aspect_ratio_bucket",
-          "hist_prior_exposure_bin_std",
-          "hist_prior_long_view_bin_std",
-          "hist_recent_long_view_age_bin_std",
-          "hist_seen_video_std",
-          "hist_seen_author_std",
-          "hist_seen_primary_tag_std",
-          "hist_trailing24h_exposure_bin_std",
-          "hist_trailing24h_long_view_bin_std"
-        ],
-        "hyperparameters": {
-          "batch_size": 8192,
-          "dropout": 0.1,
-          "embedding_dim": 16,
-          "epochs": 12,
-          "gate_l2": 0.001,
-          "history_hidden": 32,
-          "lr": 0.001,
-          "patience": 4,
-          "rad_input_dim": 72,
-          "rad_loss_weight": 0.1,
-          "threads": 4,
-          "valid_batch_size": 32768,
-          "weight_decay": 1e-06
-        },
-        "losses": {
-          "auxiliary": "0.10 * SmoothL1(sigmoid(rad_logit), rad_target, beta=0.10) with detached DCN-MLP/history inputs",
-          "main": "BCEWithLogitsLoss on final history exit for long_view",
-          "regularization": "Adam weight_decay=1e-6 plus 1e-3 * sum(field_gate^2)"
-        },
-        "model_family": "duration_auxiliary",
-        "risks": [
-          "Chronological history generation and RAD target construction must remain vectorized enough to finish within the time budget.",
-          "The detached RAD head may add diversity mainly through the final rank blend; if the auxiliary target is noisy, gains can be small on this seed.",
-          "Within-user percentile-rank blending can improve nDCG more than GAUC, so checkpoint variance remains possible despite preserving the parent backbone."
-        ]
-      },
-      "decision": "confirmed",
-      "error_type": null,
-      "metrics": {
-        "GAUC": 0.6721409447313641,
-        "nDCG@5": 0.5382066966715908,
-        "primary": 0.6051738207014774
-      },
-      "model_family": "duration_auxiliary",
-      "node_id": "7b0ef1fe04d5440a8916975d1d9dca4f",
-      "outcome": "component_tradeoff",
-      "parent_trial_id": "df50a5e5bb8f4ecfa463f80e67e6f47c",
-      "recovery_outcome": null,
-      "source_record_sha256": "6c75e1a0d06727839eb99265011d8a76e405e7e9f4249f51eda0b2173d5b53d4",
-      "status": "confirmed",
-      "trial_id": "8d907bc439104c349dac6188b811362e",
-      "wall_seconds": 482.14734864234924
+      "trial_id": "1d4c66f8f9d44386b3ab04eb2954aad6",
+      "wall_seconds": 677.442113161087
     },
     {
       "assignment_family": "duration_auxiliary",
@@ -702,330 +928,6 @@
       "status": "confirmed",
       "trial_id": "0eebbd2fea9245e385d7a21f51701649",
       "wall_seconds": 527.5102422237396
-    },
-    {
-      "assignment_family": "history_residual",
-      "candidate_exec_seconds": 673.4524493217468,
-      "champion_deltas": {
-        "GAUC": 0.00042054510595268546,
-        "nDCG@5": 8.060380085372909e-05,
-        "primary": 0.00025057445340315176
-      },
-      "code_sha256": "0f405534288ba4ccd31249c2f725900edbae019c6ccb5ed44cf601e28e2c75f3",
-      "configuration": {
-        "estimated_runtime_seconds": 660,
-        "expected_metric_effects": {
-          "GAUC": "+0.0000 to +0.0004 vs DCN parent",
-          "nDCG@5": "+0.0001 to +0.0004 vs DCN parent"
-        },
-        "features": [
-          "user_id",
-          "video_id",
-          "author_id",
-          "tab",
-          "duration_bucket",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "tag_2",
-          "user_active_degree",
-          "follow_user_num_range",
-          "register_days_range",
-          "music_id",
-          "music_type",
-          "video_type",
-          "upload_type",
-          "aspect_ratio_bucket",
-          "hist_prior_exposure_bin",
-          "hist_prior_long_view_bin",
-          "hist_recent_long_view_bin",
-          "hist_seen_video",
-          "hist_seen_author",
-          "hist_seen_primary_tag",
-          "hist_24h_exposure_bin",
-          "hist_24h_long_view_bin"
-        ],
-        "hyperparameters": {
-          "batch_size": 8192,
-          "dropout": 0.1,
-          "embedding_dim": 16,
-          "epochs": 12,
-          "history_hidden_dim": 32,
-          "learning_rate": 0.001,
-          "min_improvement": 1e-05,
-          "patience": 4,
-          "residual_cap": 0.3,
-          "residual_raw_init": -2.9444389791664403,
-          "threads": 4,
-          "valid_batch_size": 32768,
-          "weight_decay": 1e-06
-        },
-        "losses": {
-          "auxiliary": "none",
-          "main": "binary_cross_entropy_with_logits on final history residual output",
-          "regularization": "1e-3 * sum(field_gate^2)"
-        },
-        "model_family": "history_residual",
-        "risks": [
-          "Strict chronological history construction is easy to leak if equal-(user,time_ms) groups are not buffered before updates.",
-          "The added history residual can improve nDCG but still regress if train-only standardization or frozen-validation state is implemented incorrectly.",
-          "This branch is closer to the resource limit because it retrains the full DCN parent and adds history feature generation."
-        ]
-      },
-      "decision": "confirmed",
-      "error_type": null,
-      "metrics": {
-        "GAUC": 0.6714723459645795,
-        "nDCG@5": 0.5380948554927942,
-        "primary": 0.6047836007286869
-      },
-      "model_family": "history_residual",
-      "node_id": "226a927115704dc29b5fd45e35bff4e5",
-      "outcome": "component_tradeoff",
-      "parent_trial_id": "28599f9f0a084668b15e4e2c609f1120",
-      "recovery_outcome": null,
-      "source_record_sha256": "53a187e47e6725d50ab998eaf7d0b9bfa4b2d48b71da01ff53d9d6de4bec233a",
-      "status": "confirmed",
-      "trial_id": "1be2c8ebaf354ba9af8bfd2f6a65ea9c",
-      "wall_seconds": 677.4359266757965
-    },
-    {
-      "assignment_family": "history_residual",
-      "candidate_exec_seconds": 671.6772964000702,
-      "champion_deltas": {
-        "GAUC": 0.00027535932599231927,
-        "nDCG@5": -0.00010806674414354234,
-        "primary": 8.364629092438847e-05
-      },
-      "code_sha256": "0f405534288ba4ccd31249c2f725900edbae019c6ccb5ed44cf601e28e2c75f3",
-      "configuration": {
-        "estimated_runtime_seconds": 660,
-        "expected_metric_effects": {
-          "GAUC": "+0.0000 to +0.0004 vs DCN parent",
-          "nDCG@5": "+0.0001 to +0.0004 vs DCN parent"
-        },
-        "features": [
-          "user_id",
-          "video_id",
-          "author_id",
-          "tab",
-          "duration_bucket",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "tag_2",
-          "user_active_degree",
-          "follow_user_num_range",
-          "register_days_range",
-          "music_id",
-          "music_type",
-          "video_type",
-          "upload_type",
-          "aspect_ratio_bucket",
-          "hist_prior_exposure_bin",
-          "hist_prior_long_view_bin",
-          "hist_recent_long_view_bin",
-          "hist_seen_video",
-          "hist_seen_author",
-          "hist_seen_primary_tag",
-          "hist_24h_exposure_bin",
-          "hist_24h_long_view_bin"
-        ],
-        "hyperparameters": {
-          "batch_size": 8192,
-          "dropout": 0.1,
-          "embedding_dim": 16,
-          "epochs": 12,
-          "history_hidden_dim": 32,
-          "learning_rate": 0.001,
-          "min_improvement": 1e-05,
-          "patience": 4,
-          "residual_cap": 0.3,
-          "residual_raw_init": -2.9444389791664403,
-          "threads": 4,
-          "valid_batch_size": 32768,
-          "weight_decay": 1e-06
-        },
-        "losses": {
-          "auxiliary": "none",
-          "main": "binary_cross_entropy_with_logits on final history residual output",
-          "regularization": "1e-3 * sum(field_gate^2)"
-        },
-        "model_family": "history_residual",
-        "risks": [
-          "Strict chronological history construction is easy to leak if equal-(user,time_ms) groups are not buffered before updates.",
-          "The added history residual can improve nDCG but still regress if train-only standardization or frozen-validation state is implemented incorrectly.",
-          "This branch is closer to the resource limit because it retrains the full DCN parent and adds history feature generation."
-        ]
-      },
-      "decision": "confirmed",
-      "error_type": null,
-      "metrics": {
-        "GAUC": 0.6713271601846191,
-        "nDCG@5": 0.537906184947797,
-        "primary": 0.6046166725662081
-      },
-      "model_family": "history_residual",
-      "node_id": "9be4f52241174dbe92556f2c258dcf24",
-      "outcome": "parent_dominated",
-      "parent_trial_id": "28599f9f0a084668b15e4e2c609f1120",
-      "recovery_outcome": null,
-      "source_record_sha256": "440640bc01318dd8242a112bbbccd1cac51697e1a643921300fa55868f9528d3",
-      "status": "confirmed",
-      "trial_id": "1d4c66f8f9d44386b3ab04eb2954aad6",
-      "wall_seconds": 677.442113161087
-    },
-    {
-      "assignment_family": "rich_fm",
-      "candidate_exec_seconds": 379.66877841949463,
-      "champion_deltas": {
-        "GAUC": -0.0004963074025582381,
-        "nDCG@5": -0.0004761851904090397,
-        "primary": -0.00048624629648363893
-      },
-      "code_sha256": "5e6f68dacb9f242786ab998bd9900a3fdfd2534ae6cc0644ac8a581ec0acb889",
-      "configuration": {
-        "estimated_runtime_seconds": 520,
-        "expected_metric_effects": {
-          "GAUC": "+0.0030 to +0.0045",
-          "nDCG@5": "+0.0015 to +0.0025"
-        },
-        "features": [
-          "user_id",
-          "video_id",
-          "author_id",
-          "tab",
-          "duration_bucket",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "tag_2",
-          "user_active_degree",
-          "follow_user_num_range",
-          "register_days_range",
-          "music_id",
-          "music_type",
-          "video_type",
-          "upload_type",
-          "aspect_ratio_bucket"
-        ],
-        "hyperparameters": {
-          "batch_size": 8192,
-          "embedding_dim": 16,
-          "epochs": 40,
-          "lr": 0.001,
-          "optimizer": "Adam",
-          "patience": 4,
-          "threads": 4,
-          "weight_decay": 1e-06
-        },
-        "losses": {
-          "primary": "binary_cross_entropy",
-          "regularization": "gate_l2_only_1e-3"
-        },
-        "model_family": "rich_fm",
-        "risks": [
-          "Rich feature joins or vocab building may drift from the exact proven transforms if not implemented carefully.",
-          "Single-table offset encoding increases sensitivity to field-order mistakes.",
-          "Validation-based checkpointing can underperform if score computation or unknown handling differs from the intended milestone recipe."
-        ]
-      },
-      "decision": "evaluated",
-      "error_type": null,
-      "metrics": {
-        "GAUC": 0.6705554934560686,
-        "nDCG@5": 0.5375380665015315,
-        "primary": 0.6040467799788001
-      },
-      "model_family": "rich_fm",
-      "node_id": "e4bfd31d6f5443ab836ecc1b45f16706",
-      "outcome": "improved_both_components",
-      "parent_trial_id": "5dfa082dd0f34a83bb995aa1dc2e580f",
-      "recovery_outcome": null,
-      "source_record_sha256": "21d17de127c74277f909ed8c711ba09cf28d76da07fcc3293b6d7256ec6e51c4",
-      "status": "success",
-      "trial_id": "0063a1b30a274942b50b7cdaef0e786b",
-      "wall_seconds": 414.48038387298584
-    },
-    {
-      "assignment_family": "history_residual",
-      "candidate_exec_seconds": 900.0,
-      "champion_deltas": null,
-      "code_sha256": "4ee3ad01ad55d94a5c1b6dc6a862a2632569ef7e63cb63c9287533a1e8f99864",
-      "configuration": {
-        "estimated_runtime_seconds": 780,
-        "expected_metric_effects": {
-          "GAUC": "+0.0000 to +0.0002 vs prior buggy implementation after finishing",
-          "nDCG@5": "+0.0000 to +0.0001 vs prior buggy implementation after finishing"
-        },
-        "features": [
-          "user_id",
-          "video_id",
-          "author_id",
-          "tab",
-          "duration_bucket",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "tag_2",
-          "user_active_degree",
-          "follow_user_num_range",
-          "register_days_range",
-          "music_id",
-          "music_type",
-          "video_type",
-          "upload_type",
-          "aspect_ratio_bucket",
-          "hist_prior_exposure_bin",
-          "hist_prior_long_view_bin",
-          "hist_recent_long_view_age_bin",
-          "hist_seen_video",
-          "hist_seen_author",
-          "hist_seen_primary_tag",
-          "hist_24h_exposure_bin",
-          "hist_24h_long_view_bin"
-        ],
-        "hyperparameters": {
-          "batch_size": 8192,
-          "embedding_dim": 16,
-          "epochs": 12,
-          "lr": 0.001,
-          "optimizer": "Adam",
-          "patience": 4,
-          "scheduler": "ReduceLROnPlateau(factor=0.25,patience=0,threshold=1e-5,min_lr=2.5e-4)",
-          "threads": 4,
-          "valid_batch_size": 32768,
-          "weight_decay": 1e-06
-        },
-        "losses": {
-          "architecture": "18-field gated FM + exact compact DCN residual + 8-feature strict-history residual",
-          "primary": "binary_cross_entropy_on_final_history_logit",
-          "regularization": "gate_l2_only_1e-3",
-          "selection": "checkpoint_and_early_stop_on_full_validation_primary"
-        },
-        "model_family": "history_residual",
-        "risks": [
-          "History construction remains the dominant CPU cost and must stay vectorized enough to leave time for evaluation and prediction writing.",
-          "Any drift from the exact frozen rich/DCN/history transforms or field order can regress the reproduced score.",
-          "If checkpointing is not aligned with the final emitted predictions, validation gains may not translate to the written file."
-        ]
-      },
-      "decision": "repair_pending",
-      "error_type": "TimeoutError",
-      "metrics": null,
-      "model_family": "history_residual",
-      "node_id": "ec10cd222eea4f10bbedc7fad11c285c",
-      "outcome": "execution_failure",
-      "parent_trial_id": "10083d23728a44a1987cc720cf57959f",
-      "recovery_outcome": "repair_failed",
-      "source_record_sha256": "03b6da1eca782a715bae93693bbfb35e4570ec21babeae5d6b0ee70058dc13e1",
-      "status": "failed",
-      "trial_id": "f75e155740f4478b96d283d286a6af24",
-      "wall_seconds": 957.4817862510681
     },
     {
       "assignment_family": "rich_fm",
@@ -1120,121 +1022,6 @@
       "wall_seconds": 199.53319144248962
     },
     {
-      "assignment_family": "official_fm_seed",
-      "candidate_exec_seconds": 119.68388223648071,
-      "champion_deltas": {
-        "GAUC": -0.003919168697562481,
-        "nDCG@5": -0.002209371147086747,
-        "primary": -0.0030642699223246694
-      },
-      "code_sha256": "6c75d29c35ebb9b7ad35fe1517ee5efcdecd7aac07a8b94d760ef7ff347e84d3",
-      "configuration": {
-        "model_family": "official_fm_seed"
-      },
-      "decision": "accepted_as_ancestry_root",
-      "error_type": null,
-      "metrics": {
-        "GAUC": 0.6671326321610643,
-        "nDCG@5": 0.5358048805448538,
-        "primary": 0.601468756352959
-      },
-      "model_family": "official_fm_seed",
-      "node_id": "f844b828d1794422b8594d4c03b7e6f4",
-      "outcome": "evaluated",
-      "parent_trial_id": null,
-      "recovery_outcome": null,
-      "source_record_sha256": "010eb790875e42bfa913754408bde1ee281cb6bda2c2173256cd1b5240dfa392",
-      "status": "success",
-      "trial_id": "13d353ad478949698fa881d80a8f30be",
-      "wall_seconds": 169.32607173919678
-    },
-    {
-      "assignment_family": "rich_fm",
-      "candidate_exec_seconds": 5.266655445098877,
-      "champion_deltas": null,
-      "code_sha256": "47b53ecde684420b925599e12280d95e383870e1acdf0753426b6ddc30846cf7",
-      "configuration": {
-        "abort_criteria": [
-          "Abort the rich feature bundle and refit the unchanged core-field FM if its best last-three-days internal checkpoint does not strictly exceed the core FM in both GAUC and nDCG@5."
-        ],
-        "change_scope": "features",
-        "eda_observation_ids": [
-          "cold_start",
-          "temporal_drift"
-        ],
-        "estimated_memory_mb": 1700,
-        "estimated_runtime_seconds": 620,
-        "expected_metric_effects": {
-          "GAUC": "+0.0035 to +0.0050 over organizer FM",
-          "nDCG@5": "+0.0020 to +0.0035 over organizer FM",
-          "primary": "+0.0028 to +0.0042 over organizer FM"
-        },
-        "falsification_condition": "The hypothesis is falsified if the rich FM fails to beat the same-seed core FM on both internal GAUC and internal nDCG@5 using separately prefix-fitted vocabularies.",
-        "features": [
-          "user_id",
-          "video_id",
-          "tab",
-          "duration_bucket",
-          "author_id",
-          "duration_rule_band",
-          "tab_duration_cross",
-          "hour",
-          "primary_tag",
-          "secondary_tag",
-          "user_active_degree",
-          "follow_user_num_range"
-        ],
-        "fidelity": "full",
-        "hyperparameters": {
-          "batch_size": 8192,
-          "embedding_dimension": 16,
-          "feature_vocabulary": "fit on chronological training partition only; rebuilt from all train.csv for final fit",
-          "learning_rate": 0.001,
-          "maximum_internal_epochs": 10,
-          "seed": "AIDE_SEED",
-          "unknown_category": "one reserved category per field"
-        },
-        "internal_validation": {
-          "comparison": "Same-seed core FM and rich FM are trained on the identical prefix and evaluated on the identical chronological holdout; public validation labels are never read for selection.",
-          "preprocessing": "All categorical vocabularies are fitted only on the earlier prefix; final public-validation vocabularies are rebuilt using all and only train.csv.",
-          "split": "last_3_train_days"
-        },
-        "literature_citation_ids": [],
-        "losses": {
-          "primary": "organizer FM binary cross-entropy update on long_view",
-          "regularization": "unchanged organizer FM regularization"
-        },
-        "model_family": "rich_fm",
-        "preserved_parent_components": [
-          "organizer baseline.FM implementation",
-          "16-dimensional FM embeddings",
-          "learning rate 0.001",
-          "binary long_view supervision",
-          "8192-row shuffled mini-batches",
-          "seeded stochastic training and direct FM scoring"
-        ],
-        "risks": [
-          "The larger sparse design matrix increases FM training time and memory.",
-          "Metadata fields may improve GAUC while adding noise to nDCG@5.",
-          "An internal chronological split may select fewer epochs than optimal for the full training window."
-        ],
-        "scientific_change": "Expand the organizer FM input from its core impression fields to a train-vocabulary-fitted bundle of static author/tag/user metadata and compact duration, hour, and tab-duration context fields.",
-        "target_metric": "strict joint improvement in GAUC, nDCG@5, and primary"
-      },
-      "decision": "repair_pending",
-      "error_type": "IndexError",
-      "metrics": null,
-      "model_family": "rich_fm",
-      "node_id": "6f1c3097f0b2439bb716e9f6f4c6de27",
-      "outcome": "execution_failure",
-      "parent_trial_id": "13d353ad478949698fa881d80a8f30be",
-      "recovery_outcome": null,
-      "source_record_sha256": "7495fc3060f2bb963ff221b343a0ec266741b2619d4a11484c1faef6f4a93f76",
-      "status": "failed",
-      "trial_id": "8e43667e3d1842acb0c582417addab90",
-      "wall_seconds": 98.22847938537598
-    },
-    {
       "assignment_family": "rich_fm",
       "candidate_exec_seconds": 0.0,
       "champion_deltas": null,
@@ -1324,6 +1111,242 @@
       "status": "failed",
       "trial_id": "b1ff3f7c9b5f49ba8b7e97b7870122ed",
       "wall_seconds": 63.425432205200195
+    },
+    {
+      "assignment_family": "rich_fm",
+      "candidate_exec_seconds": 5.266655445098877,
+      "champion_deltas": null,
+      "code_sha256": "47b53ecde684420b925599e12280d95e383870e1acdf0753426b6ddc30846cf7",
+      "configuration": {
+        "abort_criteria": [
+          "Abort the rich feature bundle and refit the unchanged core-field FM if its best last-three-days internal checkpoint does not strictly exceed the core FM in both GAUC and nDCG@5."
+        ],
+        "change_scope": "features",
+        "eda_observation_ids": [
+          "cold_start",
+          "temporal_drift"
+        ],
+        "estimated_memory_mb": 1700,
+        "estimated_runtime_seconds": 620,
+        "expected_metric_effects": {
+          "GAUC": "+0.0035 to +0.0050 over organizer FM",
+          "nDCG@5": "+0.0020 to +0.0035 over organizer FM",
+          "primary": "+0.0028 to +0.0042 over organizer FM"
+        },
+        "falsification_condition": "The hypothesis is falsified if the rich FM fails to beat the same-seed core FM on both internal GAUC and internal nDCG@5 using separately prefix-fitted vocabularies.",
+        "features": [
+          "user_id",
+          "video_id",
+          "tab",
+          "duration_bucket",
+          "author_id",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "secondary_tag",
+          "user_active_degree",
+          "follow_user_num_range"
+        ],
+        "fidelity": "full",
+        "hyperparameters": {
+          "batch_size": 8192,
+          "embedding_dimension": 16,
+          "feature_vocabulary": "fit on chronological training partition only; rebuilt from all train.csv for final fit",
+          "learning_rate": 0.001,
+          "maximum_internal_epochs": 10,
+          "seed": "AIDE_SEED",
+          "unknown_category": "one reserved category per field"
+        },
+        "internal_validation": {
+          "comparison": "Same-seed core FM and rich FM are trained on the identical prefix and evaluated on the identical chronological holdout; public validation labels are never read for selection.",
+          "preprocessing": "All categorical vocabularies are fitted only on the earlier prefix; final public-validation vocabularies are rebuilt using all and only train.csv.",
+          "split": "last_3_train_days"
+        },
+        "literature_citation_ids": [],
+        "losses": {
+          "primary": "organizer FM binary cross-entropy update on long_view",
+          "regularization": "unchanged organizer FM regularization"
+        },
+        "model_family": "rich_fm",
+        "preserved_parent_components": [
+          "organizer baseline.FM implementation",
+          "16-dimensional FM embeddings",
+          "learning rate 0.001",
+          "binary long_view supervision",
+          "8192-row shuffled mini-batches",
+          "seeded stochastic training and direct FM scoring"
+        ],
+        "risks": [
+          "The larger sparse design matrix increases FM training time and memory.",
+          "Metadata fields may improve GAUC while adding noise to nDCG@5.",
+          "An internal chronological split may select fewer epochs than optimal for the full training window."
+        ],
+        "scientific_change": "Expand the organizer FM input from its core impression fields to a train-vocabulary-fitted bundle of static author/tag/user metadata and compact duration, hour, and tab-duration context fields.",
+        "target_metric": "strict joint improvement in GAUC, nDCG@5, and primary"
+      },
+      "decision": "repair_pending",
+      "error_type": "IndexError",
+      "metrics": null,
+      "model_family": "rich_fm",
+      "node_id": "6f1c3097f0b2439bb716e9f6f4c6de27",
+      "outcome": "execution_failure",
+      "parent_trial_id": "13d353ad478949698fa881d80a8f30be",
+      "recovery_outcome": null,
+      "source_record_sha256": "7495fc3060f2bb963ff221b343a0ec266741b2619d4a11484c1faef6f4a93f76",
+      "status": "failed",
+      "trial_id": "8e43667e3d1842acb0c582417addab90",
+      "wall_seconds": 98.22847938537598
+    },
+    {
+      "assignment_family": "history_residual",
+      "candidate_exec_seconds": 900.0,
+      "champion_deltas": null,
+      "code_sha256": "4ee3ad01ad55d94a5c1b6dc6a862a2632569ef7e63cb63c9287533a1e8f99864",
+      "configuration": {
+        "estimated_runtime_seconds": 780,
+        "expected_metric_effects": {
+          "GAUC": "+0.0000 to +0.0002 vs prior buggy implementation after finishing",
+          "nDCG@5": "+0.0000 to +0.0001 vs prior buggy implementation after finishing"
+        },
+        "features": [
+          "user_id",
+          "video_id",
+          "author_id",
+          "tab",
+          "duration_bucket",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "tag_2",
+          "user_active_degree",
+          "follow_user_num_range",
+          "register_days_range",
+          "music_id",
+          "music_type",
+          "video_type",
+          "upload_type",
+          "aspect_ratio_bucket",
+          "hist_prior_exposure_bin",
+          "hist_prior_long_view_bin",
+          "hist_recent_long_view_age_bin",
+          "hist_seen_video",
+          "hist_seen_author",
+          "hist_seen_primary_tag",
+          "hist_24h_exposure_bin",
+          "hist_24h_long_view_bin"
+        ],
+        "hyperparameters": {
+          "batch_size": 8192,
+          "embedding_dim": 16,
+          "epochs": 12,
+          "lr": 0.001,
+          "optimizer": "Adam",
+          "patience": 4,
+          "scheduler": "ReduceLROnPlateau(factor=0.25,patience=0,threshold=1e-5,min_lr=2.5e-4)",
+          "threads": 4,
+          "valid_batch_size": 32768,
+          "weight_decay": 1e-06
+        },
+        "losses": {
+          "architecture": "18-field gated FM + exact compact DCN residual + 8-feature strict-history residual",
+          "primary": "binary_cross_entropy_on_final_history_logit",
+          "regularization": "gate_l2_only_1e-3",
+          "selection": "checkpoint_and_early_stop_on_full_validation_primary"
+        },
+        "model_family": "history_residual",
+        "risks": [
+          "History construction remains the dominant CPU cost and must stay vectorized enough to leave time for evaluation and prediction writing.",
+          "Any drift from the exact frozen rich/DCN/history transforms or field order can regress the reproduced score.",
+          "If checkpointing is not aligned with the final emitted predictions, validation gains may not translate to the written file."
+        ]
+      },
+      "decision": "repair_pending",
+      "error_type": "TimeoutError",
+      "metrics": null,
+      "model_family": "history_residual",
+      "node_id": "ec10cd222eea4f10bbedc7fad11c285c",
+      "outcome": "execution_failure",
+      "parent_trial_id": "10083d23728a44a1987cc720cf57959f",
+      "recovery_outcome": "repair_failed",
+      "source_record_sha256": "03b6da1eca782a715bae93693bbfb35e4570ec21babeae5d6b0ee70058dc13e1",
+      "status": "failed",
+      "trial_id": "f75e155740f4478b96d283d286a6af24",
+      "wall_seconds": 957.4817862510681
+    },
+    {
+      "assignment_family": "dcn_v2",
+      "candidate_exec_seconds": 900.0,
+      "champion_deltas": null,
+      "code_sha256": "ef0bfecbee5ab6990667c02a79d6c66b7e1215fbc86503d146aff52388e55645",
+      "configuration": {
+        "estimated_runtime_seconds": 820,
+        "expected_metric_effects": {
+          "GAUC": "+0.0007 to +0.0014 over rich FM",
+          "nDCG@5": "+0.0003 to +0.0007 over rich FM"
+        },
+        "features": [
+          "user_id",
+          "video_id",
+          "author_id",
+          "tab",
+          "duration_bucket",
+          "duration_rule_band",
+          "tab_duration_cross",
+          "hour",
+          "primary_tag",
+          "tag_2",
+          "user_active_degree",
+          "follow_user_num_range",
+          "register_days_range",
+          "music_id",
+          "music_type",
+          "video_type",
+          "upload_type",
+          "aspect_ratio_bucket"
+        ],
+        "hyperparameters": {
+          "batch_size": 8192,
+          "dcn_hidden": [
+            128,
+            64
+          ],
+          "dropout": 0.1,
+          "embedding_dim": 16,
+          "epochs": 40,
+          "lr": 0.001,
+          "optimizer": "Adam",
+          "patience": 4,
+          "raw_scale_init": -2.9444389791664403,
+          "residual_scale_cap": 0.3,
+          "valid_batch_size": 32768,
+          "weight_decay": 1e-06
+        },
+        "losses": {
+          "architecture": "FM logit plus gated DCN residual with two vector-weight cross layers and a 288->128->64 MLP",
+          "main": "BCEWithLogitsLoss on long_view",
+          "regularization": "1e-3 * sum(field_gate^2) with Adam weight_decay=1e-6"
+        },
+        "model_family": "dcn_v2",
+        "risks": [
+          "Exact DCN reproduction is sensitive to field order, bucketization, and initialization; small drift can erase gains.",
+          "The wider model may overfit validation if the residual grows too quickly, though the small initialized gate mitigates this.",
+          "Embedding plus dense residual increases CPU time relative to rich FM and leaves less slack if IO is slow."
+        ]
+      },
+      "decision": "repair_pending",
+      "error_type": "TimeoutError",
+      "metrics": null,
+      "model_family": "dcn_v2",
+      "node_id": "3642969feca94c678b58151ec57b0bc5",
+      "outcome": "execution_failure",
+      "parent_trial_id": "c07ea76997d14cba8fd1a3715972db10",
+      "recovery_outcome": null,
+      "source_record_sha256": "2c115ef03ca363ee0b97d7790a1e395b80811f97f6877e9340d1e9e135e5f1ed",
+      "status": "failed",
+      "trial_id": "f5c88cd2478a4ecc8e6bdde2dbafdea5",
+      "wall_seconds": 3199.5196974277496
     }
   ],
   "schema_version": 1,
@@ -1333,6 +1356,7 @@
     "03b6da1eca782a715bae93693bbfb35e4570ec21babeae5d6b0ee70058dc13e1",
     "0a08e436ed420b78186e08cdd645d7fa9280d8cda6eead6f41b58eadadc3d4bb",
     "0d6a8a13d6a8fe8f1e90081bfaf69b742e96588e145ffb4f4795d08d305efe32",
+    "13d1367c8078753052c779c88164cf08fdbd1795880ee974757b89cdc144cb3e",
     "14c18ff641eaaa79b67f8927bb95d2cdd445347ace8d76509f1404e591773a72",
     "1adccc925cd7890ad67ff75c6e3e3789d2a33bd1fdb07948b2585931eff42ce9",
     "1c9fc6407c6bc376484c02fe07e086314b9b5c3dd397299fd558bc13d6459553",
@@ -1366,7 +1390,9 @@
     "c9463b62979c1e94fc616c087895c517c5e0c4025ed145d573d14f1ca4804211",
     "ca143d10282a57aef52a55702a0aaf70ab49a83a653e2d24a91c1cb40e7a9629",
     "d09f25d3feccaa4f04b63aa4bbf506a41e26a04c23028181f48814fecd37ff23",
+    "deeb49204034be9dec255ebbeb928f0119cdf4a964510be36c4e3fb80ba00da0",
     "e31ab0537ec5d504506586f3a7d17b06f0598f5597c4eb1204f2185c21236ae2",
-    "f116fad00c4cd05598db23073b068ec6b1b3ce03619fe41e91b4bba5776d2d11"
+    "f116fad00c4cd05598db23073b068ec6b1b3ce03619fe41e91b4bba5776d2d11",
+    "ff33e2de8c8f140156775bdde32ac618a18a808718b2e6569ca305c973336ee2"
   ]
 }
