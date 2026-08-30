@@ -590,7 +590,7 @@ def parse_args(argv: list[str] | None = None):
         help="Run the deterministic organizer seed and diagnostics without any API call.",
     )
     parser.add_argument("--steps", type=int, default=3)
-    parser.add_argument("--model", default="gpt-5.4")
+    parser.add_argument("--model", default="gpt-5.6-sol")
     parser.add_argument("--max-output-tokens-per-call", type=int, default=10_000)
     parser.add_argument("--per-trial-timeout", type=int, default=900)
     parser.add_argument("--run-id", default=None)

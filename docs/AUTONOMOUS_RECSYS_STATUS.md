@@ -334,10 +334,10 @@ python -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --steps 2 --model gpt-5.4 --max-output-tokens-per-call 10000 `
-  --max-input-tokens 50000 --max-output-tokens 20000 `
-  --max-run-usd 0.50 --input-usd-per-million 2.5 `
-  --output-usd-per-million 15 --campaign-mode development
+  --steps 2 --model gpt-5.6-sol --max-output-tokens-per-call 8000 `
+  --max-input-tokens 35000 --max-output-tokens 16000 `
+  --max-run-usd 0.50 --input-usd-per-million 4 `
+  --output-usd-per-million 20 --campaign-mode development
 ```
 
 ### API-free baseline and diagnostics smoke
@@ -352,10 +352,10 @@ python -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --execute --steps 2 --model gpt-5.4 --max-output-tokens-per-call 10000 `
-  --max-input-tokens 50000 --max-output-tokens 20000 `
-  --max-run-usd 0.50 --input-usd-per-million 2.5 `
-  --output-usd-per-million 15 --campaign-mode development `
+  --execute --steps 2 --model gpt-5.6-sol --max-output-tokens-per-call 8000 `
+  --max-input-tokens 35000 --max-output-tokens 16000 `
+  --max-run-usd 0.50 --input-usd-per-million 4 `
+  --output-usd-per-million 20 --campaign-mode development `
   --run-id techjam-aide-smoke-<version>
 ```
 
@@ -363,10 +363,10 @@ python -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --execute --steps 6 --model gpt-5.4 --max-output-tokens-per-call 10000 `
+  --execute --steps 6 --model gpt-5.6-sol --max-output-tokens-per-call 10000 `
   --max-input-tokens 120000 --max-output-tokens 60000 `
-  --max-run-usd 2 --input-usd-per-million 2.5 `
-  --output-usd-per-million 15 --campaign-mode development `
+  --max-run-usd 2 --input-usd-per-million 4 `
+  --output-usd-per-million 20 --campaign-mode development `
   --run-id techjam-aide-portfolio-dev-<version>
 ```
 
@@ -376,10 +376,10 @@ Every generated candidate is executed exactly once with fixed seed `0`. The remo
 
 ```powershell
 .\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --execute --steps 46 --model gpt-5.4 --max-output-tokens-per-call 10000 `
-  --max-input-tokens 400000 --max-output-tokens 260000 `
-  --max-run-usd 5 --input-usd-per-million 2.5 `
-  --output-usd-per-million 15 --campaign-mode clean `
+  --execute --steps 46 --model gpt-5.6-sol --max-output-tokens-per-call 10000 `
+  --max-input-tokens 250000 --max-output-tokens 200000 `
+  --max-run-usd 5 --input-usd-per-million 4 `
+  --output-usd-per-million 20 --campaign-mode clean `
   --run-id techjam-aide-portfolio-clean-<version>
 ```
 

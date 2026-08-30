@@ -161,7 +161,7 @@ Inspect a paid-run dry run; this never calls the API:
 
 ```powershell
 .\.venv\Scripts\python.exe challenge\run_aide_research.py `
-  --steps 1 --model gpt-5.4 --max-output-tokens-per-call 6000
+  --steps 1 --model gpt-5.6-sol --max-output-tokens-per-call 6000
 ```
 
 Paid execution still requires explicit `--execute` and current verified
