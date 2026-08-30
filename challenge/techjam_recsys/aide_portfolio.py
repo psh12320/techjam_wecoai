@@ -11,7 +11,7 @@ from typing import Any
 
 from aide.journal import Journal, Node
 
-PROMPT_VERSION = "kuairand-aide-autonomy-v21"
+PROMPT_VERSION = "kuairand-aide-autonomy-v22"
 CHAMPION_VALID = {
     "GAUC": 0.6710518008586268,
     "nDCG@5": 0.5380142516919405,
@@ -35,6 +35,7 @@ PORTFOLIO_ORDER = (
 FAMILY_EVIDENCE_PRIORS = {
     # Small, frozen evidence terms from the audited ledgers, EDA, and cited
     # literature. They are one scheduler feature, not a forced family order.
+    "rich_fm": 0.05,
     "history_residual": 0.25,
     "duration_auxiliary": 0.22,
     "dcn_v2": 0.15,
@@ -75,6 +76,8 @@ REQUIRED_CANDIDATE_FIELDS = (
     "eda_observation_ids",
     "literature_citation_ids",
     "scientific_change",
+    "change_scope",
+    "preserved_parent_components",
     "hypothesis",
     "features",
     "losses",
@@ -129,6 +132,8 @@ class FamilyStats:
     family: str
     attempts: int = 0
     successes: int = 0
+    parent_improvements: int = 0
+    parent_dominated_attempts: int = 0
     failures: int = 0
     timeouts: int = 0
     total_exec_seconds: float = 0.0
@@ -303,6 +308,10 @@ def parse_candidate_spec(
         "eda_observation_ids": string_list(parsed.get("eda_observation_ids")),
         "literature_citation_ids": string_list(parsed.get("literature_citation_ids")),
         "scientific_change": str(parsed.get("scientific_change") or ""),
+        "change_scope": str(parsed.get("change_scope") or ""),
+        "preserved_parent_components": string_list(
+            parsed.get("preserved_parent_components")
+        ),
         "hypothesis": str(parsed.get("hypothesis") or ""),
         "features": features,
         "losses": losses,
@@ -342,6 +351,7 @@ def validate_candidate_spec(
     nonempty_text = (
         "model_family",
         "scientific_change",
+        "change_scope",
         "hypothesis",
         "target_metric",
         "falsification_condition",
@@ -352,6 +362,7 @@ def validate_candidate_spec(
             errors.append(f"candidate_spec field must be non-empty: {field}")
     for field in (
         "features",
+        "preserved_parent_components",
         "losses",
         "expected_metric_effects",
         "risks",
@@ -364,6 +375,16 @@ def validate_candidate_spec(
     for metric in ("GAUC", "nDCG@5", "primary"):
         if metric not in effects:
             errors.append(f"expected_metric_effects missing {metric}")
+    if spec.get("change_scope") not in {
+        "features",
+        "architecture",
+        "loss",
+        "training",
+        "reranking",
+    }:
+        errors.append(
+            "change_scope must be one of features, architecture, loss, training, or reranking"
+        )
     if int(spec.get("estimated_runtime_seconds") or 0) > 900:
         errors.append("estimated_runtime_seconds exceeds the 900-second trial limit")
     if int(spec.get("estimated_memory_mb") or 0) > 3072:
@@ -555,6 +576,21 @@ class PortfolioScheduler:
                     item.timeouts += 1
             else:
                 item.successes += 1
+                parent_metrics = node_metrics(node.parent) if node.parent else None
+                if parent_metrics is not None:
+                    dominated = all(
+                        parent_metrics[key] >= metrics[key]
+                        for key in ("GAUC", "nDCG@5", "primary")
+                    ) and any(
+                        parent_metrics[key] > metrics[key]
+                        for key in ("GAUC", "nDCG@5", "primary")
+                    )
+                    if dominated:
+                        item.parent_dominated_attempts += 1
+                    elif all(
+                        metrics[key] > parent_metrics[key] for key in ("GAUC", "nDCG@5")
+                    ):
+                        item.parent_improvements += 1
                 item.best_primary = max(
                     item.best_primary or float("-inf"), metrics["primary"]
                 )
@@ -673,17 +709,36 @@ class PortfolioScheduler:
             and float(node.metric.value) >= RICH_FM_MILESTONE_PRIMARY
             for node in successes["rich_fm"]
         )
-        if not rich_reproduced and stats["rich_fm"].attempts < 2:
-            return best, PortfolioAssignment(
+        rich_refinement_warranted = stats["rich_fm"].parent_improvements > 0
+        portfolio_attempts = sum(item.attempts for item in stats.values())
+        force_rich = stats["rich_fm"].attempts == 0 or (
+            not rich_reproduced
+            and stats["rich_fm"].attempts == 1
+            and portfolio_attempts == 1
+            and rich_refinement_warranted
+        )
+        if not rich_reproduced and force_rich:
+            rich_parent = (
+                max(
+                    successes["rich_fm"],
+                    key=lambda node: (node_metrics(node) or {})["primary"],
+                )
+                if successes["rich_fm"]
+                else best
+            )
+            return rich_parent, PortfolioAssignment(
                 family="rich_fm",
-                action="improve",
+                action="refine" if successes["rich_fm"] else "improve",
                 reason=(
-                    "First milestone: independently implement the proven 13-field gated "
-                    "FM direction and reach the strong-rich coverage threshold before exploring other branches."
+                    "First milestone: test one previously untested, parent-relative "
+                    "rich-FM hypothesis grounded in durable evidence. Preserve the "
+                    "organizer FM mechanisms outside the declared change scope. A second "
+                    "rich-FM refinement is allowed only after a first attempt improves "
+                    "both components."
                 ),
                 utility=2.0,
                 alternatives=(("rich_fm", 2.0),),
-                parent_node_id=best.id,
+                parent_node_id=rich_parent.id,
                 feature_vector={"rich_milestone_missing": 1.0},
             )
 
@@ -694,7 +749,7 @@ class PortfolioScheduler:
         }
         frontier = pareto_frontier(journal.good_nodes) or [best]
         options: list[tuple[str, float, Node, dict[str, float]]] = []
-        for family in PORTFOLIO_ORDER[1:]:
+        for family in PORTFOLIO_ORDER:
             item = stats[family]
             exploration = 0.75 if item.attempts == 0 else 0.0
             primary_evidence = (
@@ -738,6 +793,7 @@ class PortfolioScheduler:
             average_runtime = item.total_exec_seconds / max(1, item.attempts)
             runtime_penalty = min(0.4, average_runtime / 900.0 * 0.4)
             failure_penalty = 0.20 * item.failures + 0.35 * item.timeouts
+            parent_regression_penalty = 0.40 * item.parent_dominated_attempts
             repeat_penalty = 0.08 * item.attempts
             duplicate_penalty = 0.15 * max(
                 0, item.attempts - item.unique_scientific_changes
@@ -764,6 +820,7 @@ class PortfolioScheduler:
                 "parent_compatibility": compatibility_bonus,
                 "runtime_penalty": -runtime_penalty,
                 "failure_penalty": -failure_penalty,
+                "parent_dominated_penalty": -parent_regression_penalty,
                 "repeat_penalty": -repeat_penalty,
                 "near_duplicate_penalty": -duplicate_penalty,
                 "public_tuning_penalty": -public_tuning_penalty,

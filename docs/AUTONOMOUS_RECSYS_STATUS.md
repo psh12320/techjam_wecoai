@@ -1,6 +1,6 @@
 # Autonomous KuaiRand Recommender Research: Status and Handoff
 
-Last audited: 2026-08-30 (Asia/Singapore). This document describes the repository at the Phase 1 checkpoint, before the requested scientific reset. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
+Last audited: 2026-08-30 (Asia/Singapore), after the GPT-5.6 Sol v21 smoke and v22 policy correction. All metrics below were read from repository journals or deterministic reports. No result is described as competition-ready unless a fresh `clean` campaign says so.
 
 ## Current verdict
 
@@ -10,10 +10,10 @@ Neither result is a fresh frozen-prompt clean-run acceptance. Under the pre-rese
 
 The durable API tracker at [`challenge/private/api_spend.json`](../challenge/private/api_spend.json) reports exactly:
 
-- cumulative estimated cost: **`$9.102185`**;
-- requests: `90`;
-- input tokens: `871220`;
-- output tokens: `461609`;
+- cumulative estimated cost: **`$9.478865`**;
+- requests: `92`;
+- input tokens: `896305`;
+- output tokens: `475426`;
 - next notification boundary: `$10`.
 
 This tracker is machine-private and ignored by Git. The amount above was read from the tracker, not reconstructed from conversation history.
@@ -27,11 +27,15 @@ Phase 1 was committed and pushed to `origin/techjam` as `04a8d32` (`checkpoint: 
 - candidate cards now require exact parent ID/code hash, EDA and literature citation IDs, one scientific change, hypothesis, features/losses, targeted metric effects, runtime/memory, risks, abort/falsification criteria, fidelity, and the internal-validation protocol;
 - the real label-safe EDA found train long-view rate `0.33662`, cold-user rows `1.593%`, user-tag prior support `77.44%`, median/p90 validation history `51/141`, median/p90 candidates per user `4/12`, median watch ratio `0.1026`, completion share `15.23%`, and hour-distribution TVD `0.0422`;
 - nine frozen primary-source literature notes cover FwFM, DIN, D2Q, D2Co, censored watch time, LambdaLoss, DCN-V2, LightGCN, and conservative ensemble selection; generated programs remain offline and receive citations, not external code or weights;
-- the scheduler now maintains a GAUC/nDCG/primary Pareto frontier and scores family-parent pairs using weaker-component gain, floor preservation, exploration, prediction diversity, runtime/API cost, timeouts/failures, near-duplicate/public-tuning penalties, and lineage compatibility;
+- the scheduler now maintains a GAUC/nDCG/primary Pareto frontier and scores family-parent pairs using weaker-component gain, floor preservation, exploration, prediction diversity, runtime/API cost, timeouts/failures, parent-dominated/near-duplicate/public-tuning penalties, and lineage compatibility;
 - internal validation is anchored on the last three labeled training days but split at a strict event-time boundary because KuaiRand date labels overlap slightly in epoch time; all equal timestamps go to holdout;
 - the trusted reviewer writes aggregate-only segment/top-5/diversity diagnostics and no row-level validation labels or predictions.
 
 An API-free v21 baseline-only campaign completed with `0` requests and `$0` incremental cost. It reproduced GAUC `0.6671326321610643`, nDCG@5 `0.5358048805448538`, primary `0.601468756352959`, wrote valid aggregate diagnostics, recorded prompt hash `8618a8a433ad2461d55eb110f86ff4ad3d1095ff7cc7a038ca49c5b40dc2e046`, and used internal-validation hash `6fac0c1b9244fc9f31cf3c46e2201e45e5fff17e7ac64a108c492c902b0d759a`. This verifies the reset harness, not a winning clean candidate.
+
+The paid GPT-5.6 Sol v21 smoke (`techjam-aide-v21-sol-smoke`) completed with two AIDE requests, zero manual interventions, and `$0.37668` incremental spend. Both generated candidates were valid, card-complete, lineage-bound rich-FM programs, but both regressed: node `236f4cbc597c44dc8e8edadf5d27eae0` scored GAUC `0.6454378172167383`, nDCG@5 `0.5261356050437236`, primary `0.585786711130231`; node `bd07139641ac4ba9ab6ad761187e2c31` scored `0.6359918380674021`, `0.5218392646763755`, `0.5789155513718889`. The run is a successful harness smoke and a rejected scientific result.
+
+The audit found that v21 forced two near-duplicate wholesale rich-FM replacements, retained prefix-only vocabularies for the final fit, discarded the proven optimizer/checkpoint recipe, and changed multiple mechanisms simultaneously. Prompt/scheduler v22 now records these nodes as parent-dominated memory, requires a single declared change scope plus preserved parent components, distinguishes internal-prefix preprocessing from an all-training final refit, penalizes parent-dominated families, and permits a second forced rich-FM refinement only when the first attempt improves both metric components. The v22 experiment-memory hash is `0d306458efc85afd6bd27e5d61922c106d41a2e8849144ec5b66dff8b4094e2a`.
 
 ## Competition objective and official constraints
 
@@ -76,7 +80,7 @@ This repository wraps that generic mechanism in a KuaiRand-specific research pro
 - every trial is recorded with lineage, hashes, metrics, resource/cost data, scheduler decisions, and recovery state;
 - untrusted candidate code runs in a restricted local process with no network and no child-process creation.
 
-The current scheduler is portfolio-aware but not yet the requested Pareto-, diversity-, and full cost-aware scheduler. The current prompts also contain a prescriptive executed recipe; the reset requires separating hard constraints, factual experiment memory, and an optional research menu.
+The current v22 scheduler is Pareto-, diversity-, component-, failure-, and API-cost-aware. Hard constraints, factual experiment memory, EDA, literature, and the optional research menu are separate hashed prompt sections.
 
 ## Repository architecture
 
@@ -109,19 +113,17 @@ Generated data, private evaluator state, API accounting, and run artifacts live 
 
 The response must begin with a `<candidate_spec>` JSON object. The parser persists normalized model family, declared family, features, losses, hyperparameters, runtime estimate, risks, expected metric effects, parse status, and assigned family. These values appear in the experiment ledger instead of every node being labeled generically as `improve`.
 
-The reset's richer card fields—parent code hash, EDA observation, literature citation, exact falsifier, memory estimate, abort criteria, and explicitly targeted metric—are not all implemented yet.
+The v22 card additionally requires one `change_scope` and a list of `preserved_parent_components`, along with the parent code hash, EDA/literature IDs, exact falsifier, memory estimate, abort criteria, and explicitly targeted metric.
 
 ### Portfolio and lineage scheduler
 
 The current deterministic scheduler:
 
-- forces a rich-FM milestone before portfolio expansion;
-- tracks attempts and valid nodes per family;
-- combines family priors, an untested-family bonus, observed primary effect, failure penalty, and repeat penalty;
+- attempts one parent-relative rich-FM milestone before portfolio expansion, allowing one immediate refinement only after both components improve;
+- tracks attempts, parent improvements, parent-dominated results, valid nodes, runtime, cost, diversity, failures, and timeouts per family;
+- combines family priors, exploration, Pareto/component evidence, floor preservation, parent compatibility, and regression/failure/repeat/cost penalties;
 - autonomously repairs the most recent debuggable leaf up to the configured depth;
-- chooses the strongest compatible parent in the required rich-FM -> DCN -> strict-history -> duration lineage.
-
-It does not yet maintain a GAUC/nDCG Pareto frontier, prediction diversity, explicit timeout probability, component-floor utility, or internal-validation evidence.
+- chooses a Pareto-compatible parent while allowing evidence-backed family re-entry after cooldown.
 
 ### Deterministic evaluator
 
@@ -312,6 +314,8 @@ The per-trial records show zero intervention at the time they were written; the 
 - Adding extra coarse history flags such as music/duration matching regressed GAUC in v13.
 - Broad historical LightGBM, hard-negative BPR, sequence SVD, and naive metadata expansion were weak deterministic local branches and should not displace the proven backbone without new EDA evidence.
 - v20 exposed a runtime/determinism problem: three stabilized-history variants timed out, the repair passed once, and the immediate seed-0 replay did not reproduce the score.
+- v21 GPT-5.6 Sol produced two valid but globally regressive rich-FM rewrites; executable code is not evidence of scientific success, and these nodes are now recorded as parent-dominated dead ends.
+- Internal-holdout preprocessing must be rebuilt on all training rows for final fitting. Keeping prefix-only vocabularies caused `2.575%` of validation users to remain unknown despite legal later-training observations.
 
 ## Setup and exact commands
 
@@ -387,7 +391,7 @@ The clean command starts from the organizer seed and uses only the frozen prompt
 
 ## Current limitations and prioritized next work
 
-1. **Run a bounded two-iteration paid smoke.** Confirm the new candidate-card format, evidence citations, family assignment, autonomous repair, and cost ledger under the `$0.50` ceiling.
+1. **Run the bounded v22 GPT-5.6 Sol smoke.** Confirm change-scope/preserved-parent cards, parent-dominated scheduling, corrected final-fit preprocessing, and the compact cost summary under the `$0.50` ceiling.
 2. **Stabilize the fastest rich-FM/DCN/history backbone.** Reproduce it comfortably under timeout and checkpoint on the exact emitted prediction. Resolve v20's seed-0 replay mismatch before adding complexity.
 3. **Prioritize the literature/EDA-backed duration branch.** Preserve the successful RAD direction, then compare one cached D2Q auxiliary inside the same training loop; do not add a second model/refit stage.
 4. **Build an nDCG@5 specialist.** Preserve the GAUC backbone, then test a tiny same-user BCE-dominant Lambda@5 residual or conservative normalized blend.

@@ -146,13 +146,17 @@ class KuaiRandAgent(Agent):
                 "Start with exactly one <candidate_spec> tag containing valid JSON "
                 "with keys parent_node_id, parent_code_sha256, model_family, "
                 "eda_observation_ids, literature_citation_ids, scientific_change, "
-                "hypothesis, features, losses, hyperparameters, target_metric, "
+                "change_scope, preserved_parent_components, hypothesis, features, "
+                "losses, hyperparameters, target_metric, "
                 "expected_metric_effects (with GAUC, nDCG@5, and primary), "
                 "estimated_runtime_seconds, estimated_memory_mb, risks, abort_criteria, "
                 "falsification_condition, fidelity, and internal_validation. Use fidelity "
                 "'full' and internal_validation split 'last_3_train_days'. The parent fields "
                 "must exactly match the selected portfolio parent. model_family must equal "
                 "the assigned scientific-change family, not merely the parent's base family. "
+                "change_scope must be exactly one of features, architecture, loss, training, "
+                "or reranking; list the parent mechanisms retained verbatim in "
+                "preserved_parent_components. "
                 "After </candidate_spec>, write a 3-5 sentence hypothesis, then exactly one complete Python code block. Do not add headings or "
                 "text after the code block."
             )
@@ -449,6 +453,22 @@ def estimate_uncached_cost(
     ) / 1_000_000
 
 
+def compact_cost_totals(state: dict[str, object] | None) -> dict[str, object]:
+    """Summarize durable spend without echoing the complete request history."""
+
+    state = dict(state or {})
+    events = state.get("events")
+    latest_event = events[-1] if isinstance(events, list) and events else None
+    return {
+        "total_estimated_cost_usd": state.get("total_estimated_cost_usd", 0.0),
+        "total_input_tokens": state.get("total_input_tokens", 0),
+        "total_output_tokens": state.get("total_output_tokens", 0),
+        "total_requests": state.get("total_requests", 0),
+        "next_notification_usd": state.get("next_notification_usd"),
+        "latest_event": latest_event,
+    }
+
+
 def bounded_candidate_exec_seconds(
     exec_time: float | None, timeout_seconds: float
 ) -> float | None:
@@ -683,7 +703,7 @@ def main() -> int:
     eda_hash = str(eda_summary.get("report_sha256") or canonical_sha256(eda_summary))
     literature_hash = str(literature_manifest["manifest_sha256"])
     scheduler_hash = canonical_sha256(
-        {"scheduler": "component-aware-pareto-v1", "max_debug_depth": 3}
+        {"scheduler": "component-aware-pareto-v2", "max_debug_depth": 3}
     )
     dry_run = {
         "paid_execution": bool(args.execute and not args.baseline_only),
@@ -806,7 +826,7 @@ def main() -> int:
     internal_validation_hash = internal_split.manifest_sha256
     scheduler_hash = canonical_sha256(
         {
-            "scheduler": "component-aware-pareto-v1",
+            "scheduler": "component-aware-pareto-v2",
             "max_debug_depth": int(cfg.agent.search.max_debug_depth),
         }
     )
@@ -1236,7 +1256,7 @@ def main() -> int:
         "per_trial_timeout_seconds": args.per_trial_timeout,
         "usage": usage,
         "run_estimated_cost_usd": run_estimated_cost_usd,
-        "cumulative_cost": backend.get_cost_tracking_totals(),
+        "cumulative_cost": compact_cost_totals(backend.get_cost_tracking_totals()),
         "manual_interventions": final_manual_interventions,
     }
     (cfg.log_dir / "resource_summary.json").write_text(

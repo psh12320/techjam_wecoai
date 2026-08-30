@@ -35,6 +35,8 @@ SAFE_CONFIG_KEYS = {
     "model_family",
     "risks",
     "scientific_change",
+    "change_scope",
+    "preserved_parent_components",
     "target_metric",
 }
 
@@ -47,7 +49,27 @@ def _safe_config(record: TrialRecord) -> dict[str, Any]:
     }
 
 
-def _entry(record: TrialRecord) -> dict[str, Any]:
+def _outcome(record: TrialRecord, records_by_trial_id: dict[str, TrialRecord]) -> str:
+    if not record.metrics:
+        return "execution_failure"
+    parent = records_by_trial_id.get(str(record.parent_trial_id or ""))
+    if parent is None or not parent.metrics:
+        return "evaluated"
+    keys = ("GAUC", "nDCG@5", "primary")
+    child_metrics = {key: float(record.metrics[key]) for key in keys}
+    parent_metrics = {key: float(parent.metrics[key]) for key in keys}
+    if all(child_metrics[key] > parent_metrics[key] for key in ("GAUC", "nDCG@5")):
+        return "improved_both_components"
+    if all(parent_metrics[key] >= child_metrics[key] for key in keys) and any(
+        parent_metrics[key] > child_metrics[key] for key in keys
+    ):
+        return "parent_dominated"
+    return "component_tradeoff"
+
+
+def _entry(
+    record: TrialRecord, records_by_trial_id: dict[str, TrialRecord]
+) -> dict[str, Any]:
     metrics = dict(record.metrics) if record.metrics else None
     component_deltas = None
     if metrics:
@@ -63,6 +85,7 @@ def _entry(record: TrialRecord) -> dict[str, Any]:
         "status": record.status,
         "decision": record.decision,
         "recovery_outcome": record.recovery_outcome,
+        "outcome": _outcome(record, records_by_trial_id),
         "metrics": metrics,
         "champion_deltas": component_deltas,
         "wall_seconds": record.wall_seconds,
@@ -83,22 +106,42 @@ def build_memory(ledger_paths: list[Path], *, max_entries: int = 16) -> dict[str
             record.record_sha256 for record in loaded if record.record_sha256
         )
 
-    # Keep the strongest successful evidence plus representative failures. The
-    # sort is deterministic and contains no code, predictions, or artifact paths.
+    records_by_trial_id = {record.trial_id: record for record in records}
+
+    # Keep the strongest positive evidence, metric-bearing dead ends, and hard
+    # failures. The sort is deterministic and contains no code, predictions, or
+    # artifact paths.
     def rank(record: TrialRecord) -> tuple[int, float, float]:
         primary = float((record.metrics or {}).get("primary", float("-inf")))
         return (1 if record.metrics else 0, primary, record.created_at_unix)
 
+    evaluated = [record for record in records if record.metrics]
     successes = sorted(
-        (record for record in records if record.metrics), key=rank, reverse=True
+        (
+            record
+            for record in evaluated
+            if _outcome(record, records_by_trial_id) != "parent_dominated"
+        ),
+        key=rank,
+        reverse=True,
+    )
+    regressions = sorted(
+        (
+            record
+            for record in evaluated
+            if _outcome(record, records_by_trial_id) == "parent_dominated"
+        ),
+        key=rank,
+        reverse=True,
     )
     failures = sorted(
         (record for record in records if not record.metrics),
         key=lambda record: (record.created_at_unix, record.trial_id),
         reverse=True,
     )
-    failure_slots = min(6, max_entries // 3)
-    success_slots = max(1, max_entries - failure_slots)
+    failure_slots = min(4, max_entries // 4)
+    regression_slots = min(4, max_entries // 4)
+    success_slots = max(1, max_entries - failure_slots - regression_slots)
 
     def diverse(values: list[TrialRecord], limit: int, key) -> list[TrialRecord]:
         chosen: list[TrialRecord] = []
@@ -120,6 +163,11 @@ def build_memory(ledger_paths: list[Path], *, max_entries: int = 16) -> dict[str
 
     selected = diverse(successes, success_slots, lambda record: record.model_family)
     selected += diverse(
+        regressions,
+        regression_slots,
+        lambda record: (record.model_family, _safe_config(record).get("change_scope")),
+    )
+    selected += diverse(
         failures,
         failure_slots,
         lambda record: (record.model_family, record.error_type),
@@ -129,7 +177,7 @@ def build_memory(ledger_paths: list[Path], *, max_entries: int = 16) -> dict[str
         "schema_version": 1,
         "source": "hash-validated AIDE experiment ledgers",
         "source_record_hashes": sorted(source_hashes),
-        "entries": [_entry(record) for record in selected],
+        "entries": [_entry(record, records_by_trial_id) for record in selected],
     }
     payload["content_sha256"] = canonical_sha256(payload)
     return payload

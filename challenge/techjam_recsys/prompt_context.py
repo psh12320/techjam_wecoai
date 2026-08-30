@@ -84,11 +84,16 @@ def _experiment_memory_prompt(value: dict[str, Any], *, max_chars: int) -> str:
             "status": entry.get("status"),
             "decision": entry.get("decision"),
             "recovery_outcome": entry.get("recovery_outcome"),
+            "outcome": entry.get("outcome"),
             "metrics": entry.get("metrics"),
             "champion_deltas": entry.get("champion_deltas"),
             "candidate_exec_seconds": entry.get("candidate_exec_seconds"),
             "error_type": entry.get("error_type"),
             "scientific_change": config.get("scientific_change"),
+            "change_scope": config.get("change_scope"),
+            "preserved_parent_components": list(
+                config.get("preserved_parent_components") or []
+            )[:8],
             "features": list(config.get("features") or [])[:12],
             "losses": config.get("losses"),
             "target_metric": config.get("target_metric"),

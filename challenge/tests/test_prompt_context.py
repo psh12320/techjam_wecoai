@@ -84,4 +84,5 @@ def test_memory_builder_validates_ledger_and_omits_code_and_artifacts(
     assert "secret implementation" not in rendered
     assert "predictions/x.npy" not in rendered
     assert memory["entries"][0]["configuration"]["scientific_change"]
+    assert memory["entries"][0]["outcome"] == "evaluated"
     assert memory["content_sha256"] != "unbuilt"

@@ -11,6 +11,7 @@ from challenge.run_aide_research import (
     bounded_candidate_exec_seconds,
     candidate_metrics_pass,
     campaign_final_designation,
+    compact_cost_totals,
     estimate_uncached_cost,
     parse_args,
     single_run_candidate_evidence,
@@ -36,6 +37,20 @@ def test_exact_metric_smoke() -> None:
     assert result["GAUC"] == 1.0
     assert result["nDCG@5"] == 0.5
     assert result["primary"] == 0.75
+
+
+def test_compact_cost_totals_keeps_only_latest_event() -> None:
+    state = {
+        "total_estimated_cost_usd": 9.4,
+        "total_input_tokens": 100,
+        "total_output_tokens": 50,
+        "total_requests": 2,
+        "next_notification_usd": 10.0,
+        "events": [{"model": "old"}, {"model": "gpt-5.6-sol"}],
+    }
+    compact = compact_cost_totals(state)
+    assert compact["latest_event"] == {"model": "gpt-5.6-sol"}
+    assert "events" not in compact
 
 
 def test_rank_normalization_is_per_user() -> None:

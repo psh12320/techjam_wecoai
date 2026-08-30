@@ -56,6 +56,8 @@ def test_complete_candidate_card_validates_parent_and_evidence_ids() -> None:
         "eda_observation_ids": ["EDA-1"],
         "literature_citation_ids": ["LIT-1"],
         "scientific_change": "add one strictly-past count residual",
+        "change_scope": "features",
+        "preserved_parent_components": ["organizer FM", "optimizer", "evaluator"],
         "hypothesis": "the count improves cold-user nDCG without lowering GAUC",
         "features": ["strict_prior_count"],
         "losses": {"bce": 1.0},
@@ -185,7 +187,7 @@ def test_source_policy_rejects_dynamic_import_process_and_composed_parent_path()
     assert any("parent-relative" in value for value in rejected)
 
 
-def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
+def test_portfolio_scheduler_forces_one_rich_milestone_then_coverage() -> None:
     def analysis(gauc: float, ndcg: float) -> str:
         return json.dumps(
             {"metrics": {"GAUC": gauc, "nDCG@5": ndcg, "primary": (gauc + ndcg) / 2}}
@@ -220,24 +222,10 @@ def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
     assert parent is rich
     assert assignment.family == "rich_fm"
 
-    strong_rich = Node(
-        code="pass",
-        plan="strong rich",
-        parent=rich,
-        candidate_spec={"model_family": "rich_field_gated_fm"},
-        metric=MetricValue(0.6036, maximize=True),
-        analysis=analysis(0.6702, 0.5370),
-        is_buggy=False,
-    )
-    journal.append(strong_rich)
-    parent, assignment = scheduler.choose(journal)
-    assert parent is strong_rich
-    assert assignment.family == "history_residual"
-
     dcn = Node(
         code="pass",
         plan="dcn v2",
-        parent=strong_rich,
+        parent=rich,
         candidate_spec={
             "model_family": "dcn_v2",
             "assignment_family": "dcn_v2",
@@ -284,6 +272,42 @@ def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
     assert parent is failed
     assert assignment.action == "debug"
     assert assignment.family == "duration_auxiliary"
+
+
+def test_parent_dominated_rich_attempt_exits_forced_milestone() -> None:
+    def analysis(gauc: float, ndcg: float) -> str:
+        return json.dumps(
+            {"metrics": {"GAUC": gauc, "nDCG@5": ndcg, "primary": (gauc + ndcg) / 2}}
+        )
+
+    seed = Node(
+        code="pass",
+        plan="baseline",
+        candidate_spec={"model_family": "official_fm_seed"},
+        metric=MetricValue(0.601469, maximize=True),
+        analysis=analysis(0.667133, 0.535805),
+        is_buggy=False,
+    )
+    regressed = Node(
+        code="pass",
+        plan="broad rich replacement",
+        parent=seed,
+        candidate_spec={
+            "model_family": "rich_fm",
+            "scientific_change": "broad replacement",
+            "internal_validation": {"split": "last_3_train_days"},
+        },
+        metric=MetricValue(0.585787, maximize=True),
+        analysis=analysis(0.645438, 0.526136),
+        is_buggy=False,
+    )
+    journal = Journal(nodes=[seed, regressed], metric_maximize=True)
+    scheduler = PortfolioScheduler(max_debug_depth=3)
+    stats = scheduler._family_stats(journal)
+    assert stats["rich_fm"].parent_dominated_attempts == 1
+    parent, assignment = scheduler.choose(journal)
+    assert parent is seed
+    assert assignment.family == "history_residual"
 
 
 def test_pareto_frontier_keeps_ndcg_specialist_and_removes_dominated_node() -> None:

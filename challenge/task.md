@@ -75,11 +75,12 @@ targets or as history only when their event timestamp is strictly earlier than
 the candidate timestamp.
 
 For equal-user/equal-time groups, emit every feature before updating any state.
-Never roll validation outcomes into later validation rows. Fit all vocabularies,
-bins, normalizers, target statistics, graphs, and auxiliary targets on the
-applicable training prefix only. Use the deterministic last-three-training-days
-holdout for internal hypothesis checks; public validation remains the external
-research feedback.
+Never roll validation outcomes into later validation rows. For the deterministic
+last-three-training-days internal holdout, fit preprocessing and auxiliary state
+only on its training prefix. For the final public-validation fit, rebuild those
+objects using all and only `train.csv`; do not strand later-training categories
+as unknown or unintentionally multiply prefix exposure. Public validation
+remains external research feedback and is never used for fitting.
 
 `video_features_statistic_pure.csv` is forbidden because its aggregation window
 can leak future information. Pairwise negatives must be observed short-view
@@ -93,8 +94,11 @@ lineage, cited EDA/literature evidence, one scientific change, features, losses,
 targeted metric, expected effects, runtime/memory, risks, abort criteria,
 falsification condition, and internal-validation fidelity.
 
-Reuse the working structure of the selected parent. A debug repair must preserve
-the parent's scientific family and hypothesis. Do not import code from
+For `improve` and `refine`, preserve the selected parent's working backbone and
+make one localized scientific change; do not replace the entire program. Risky
+additions need a conservative residual/gate/blend, a same-split parent comparison,
+and a parent-relative abort condition. A debug repair must preserve the parent's
+scientific family and hypothesis. Do not import code from
 `challenge/`, prior runs, reports, or frozen solutions, and never load previous
 predictions, checkpoints, or weights.
 
