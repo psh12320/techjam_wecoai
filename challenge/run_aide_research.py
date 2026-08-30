@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import atexit
 import difflib
 import hashlib
@@ -17,6 +16,7 @@ import time
 import uuid
 from pathlib import Path
 
+import pandas as pd
 from dotenv import load_dotenv
 from omegaconf import OmegaConf
 
@@ -59,23 +59,40 @@ from challenge.techjam_recsys.aide_portfolio import (  # noqa: E402
     PortfolioScheduler,
     candidate_code_sha256,
     clean_candidate_plan,
+    pareto_frontier,
     parse_candidate_spec,
+    validate_candidate_spec,
     validate_candidate_source,
+)
+from challenge.techjam_recsys.literature import load_manifest  # noqa: E402
+from challenge.techjam_recsys.prompt_context import (  # noqa: E402
+    PromptContext,
+    canonical_sha256,
+    load_prompt_context,
 )
 from challenge.techjam_recsys.protocol import (  # noqa: E402
     BASELINE_VALID,
     CHAMPION_VALID,
-    ROBUST_PRIMARY_TARGET,
+    MAX_ITERATIONS,
     ChallengeMetric,
     ConvergenceTracker,
     ExperimentLedger,
     TrialRecord,
     count_manual_interventions,
 )
+from challenge.techjam_recsys.validation import last_days_holdout  # noqa: E402
 
 
 class KuaiRandAgent(Agent):
-    def __init__(self, *args, scheduler: PortfolioScheduler | None = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        scheduler: PortfolioScheduler | None = None,
+        prompt_context: PromptContext | None = None,
+        allowed_eda_observation_ids: set[str] | None = None,
+        allowed_literature_citation_ids: set[str] | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.scheduler = scheduler or PortfolioScheduler(
             max_debug_depth=self.acfg.search.max_debug_depth
@@ -85,6 +102,9 @@ class KuaiRandAgent(Agent):
             action="improve",
             reason="Establish the required rich-FM milestone.",
         )
+        self.prompt_context = prompt_context
+        self.allowed_eda_observation_ids = allowed_eda_observation_ids or set()
+        self.allowed_literature_citation_ids = allowed_literature_citation_ids or set()
 
     @property
     def _prompt_environment(self):
@@ -123,10 +143,15 @@ class KuaiRandAgent(Agent):
         return {
             "Response format": (
                 "Start with exactly one <candidate_spec> tag containing valid JSON "
-                "with keys model_family, features (list), losses (object), "
-                "hyperparameters (object), estimated_runtime_seconds (integer), "
-                "risks (list), and expected_metric_effects (object with GAUC and "
-                "nDCG@5). The model_family value must equal the assigned scientific-change family, not merely the parent's base family. "
+                "with keys parent_node_id, parent_code_sha256, model_family, "
+                "eda_observation_ids, literature_citation_ids, scientific_change, "
+                "hypothesis, features, losses, hyperparameters, target_metric, "
+                "expected_metric_effects (with GAUC, nDCG@5, and primary), "
+                "estimated_runtime_seconds, estimated_memory_mb, risks, abort_criteria, "
+                "falsification_condition, fidelity, and internal_validation. Use fidelity "
+                "'full' and internal_validation split 'last_3_train_days'. The parent fields "
+                "must exactly match the selected portfolio parent. model_family must equal "
+                "the assigned scientific-change family, not merely the parent's base family. "
                 "After </candidate_spec>, write a 3-5 sentence hypothesis, then exactly one complete Python code block. Do not add headings or "
                 "text after the code block."
             )
@@ -142,9 +167,9 @@ class KuaiRandAgent(Agent):
                 "Never use current-row engagement outcomes as validation features.",
                 "Derive model features from the train/validation column intersection; training-only outcome columns must never enter X.",
                 "Write ./working/validation_predictions.csv with exactly the header row_id,score and 124909 aligned rows.",
-                "Use a fixed random seed and finish within the execution timeout.",
-                "Read the base seed from int(os.environ.get('AIDE_SEED', '0')) and use it for every random generator.",
-                "During search train exactly one AIDE_SEED; do not train or ensemble multiple seeds. The runner confirms seeds 0, 1, and 2 only after a breakthrough.",
+                "Use the fixed campaign seed 0 and finish within the execution timeout.",
+                "Read the base seed from int(os.environ.get('AIDE_SEED', '0')) and use it for every random generator; the runner always supplies 0.",
+                "Train and evaluate exactly once with AIDE_SEED=0; do not train, rerun, or ensemble multiple seeds inside a candidate.",
                 "Use vectorized library operations for million-row training; avoid per-example Python loops and repeated numpy.add.at sparse updates.",
                 "When importing the organizer evaluator, insert ./input into sys.path before from evaluate import evaluate; do not implement a substitute metric.",
                 "For chronological pandas loops, do not access leading-underscore helper columns through named itertuples attributes; use arrays, positional tuples, or non-underscore helper names.",
@@ -163,13 +188,47 @@ class KuaiRandAgent(Agent):
         # One request per iteration keeps the paid budget predictable. A malformed
         # response becomes a normal debuggable node instead of triggering hidden
         # retry spend.
+        prompt = dict(prompt)
+        if "Memory" in prompt:
+            prompt["Current campaign journal"] = prompt.pop("Memory")
+        if self.prompt_context is not None:
+            prompt.update(self.prompt_context.sections())
         return super().plan_and_code_query(prompt, retries=retries)
+
+    def update_data_preview(self) -> None:
+        # Generic CSV previews are large, unstable, and duplicate the audited EDA.
+        self.data_preview = "Disabled; use the bounded EDA evidence section."
 
     def _attach_candidate_spec(self, node: Node) -> Node:
         node.candidate_spec = parse_candidate_spec(
             node.plan or "", fallback_family=self.current_assignment.family
         )
         node.plan = clean_candidate_plan(node.plan or "")
+        parent = node.parent
+        errors = validate_candidate_spec(
+            node.candidate_spec,
+            expected_parent_node_id=parent.id if parent is not None else None,
+            expected_parent_code_sha256=(
+                candidate_code_sha256(parent.code) if parent is not None else None
+            ),
+            allowed_eda_observation_ids=self.allowed_eda_observation_ids,
+            allowed_literature_citation_ids=self.allowed_literature_citation_ids,
+        )
+        if (
+            self.current_assignment.action == "debug"
+            and parent is not None
+            and parent.candidate_spec
+        ):
+            if node.candidate_spec.get("model_family") != parent.candidate_spec.get(
+                "model_family"
+            ):
+                errors.append("debug repair changed the scientific model family")
+            if node.candidate_spec.get(
+                "scientific_change"
+            ) != parent.candidate_spec.get("scientific_change"):
+                errors.append("debug repair changed the scientific hypothesis")
+        node.candidate_spec["validation_errors"] = sorted(set(errors))
+        node.candidate_spec["card_complete"] = not errors
         return node
 
     def _draft(self) -> Node:
@@ -180,6 +239,25 @@ class KuaiRandAgent(Agent):
 
     def _debug(self, parent_node: Node) -> Node:
         return self._attach_candidate_spec(super()._debug(parent_node))
+
+    def step(self, exec_callback):
+        if not self.journal.nodes or self.data_preview is None:
+            self.update_data_preview()
+        parent_node = self.search_policy()
+        if parent_node is None:
+            result_node = self._draft()
+        elif parent_node.is_buggy:
+            result_node = self._debug(parent_node)
+        else:
+            result_node = self._improve(parent_node)
+        card_errors = result_node.candidate_spec.get("validation_errors") or []
+        result = (
+            policy_rejection(["invalid candidate card: " + "; ".join(card_errors)])
+            if card_errors
+            else exec_callback(result_node.code, True)
+        )
+        self.parse_exec_result(result_node, result)
+        self.journal.append(result_node)
 
 
 def code_diff(node: Node) -> str:
@@ -198,11 +276,12 @@ def parse_metrics(analysis: str):
         return None, f"Could not parse deterministic review: {exc}"
 
 
-def prompt_fingerprint() -> str:
+def prompt_fingerprint(extra_paths: tuple[Path, ...] = ()) -> str:
     """Hash every source that materially determines the generated prompt."""
 
     digest = hashlib.sha256()
-    for path in campaign_source_paths():
+    paths = {Path(path).resolve() for path in (*campaign_source_paths(), *extra_paths)}
+    for path in sorted(paths, key=str):
         digest.update(path.name.encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()
@@ -211,14 +290,24 @@ def prompt_fingerprint() -> str:
 def campaign_source_paths() -> tuple[Path, ...]:
     return (
         ROOT / "challenge" / "task.md",
+        ROOT / "challenge" / "prompts" / "hard_constraints.md",
+        ROOT / "challenge" / "prompts" / "research_menu.md",
+        ROOT / "challenge" / "research_memory" / "experiment_memory.json",
+        ROOT / "challenge" / "research_memory" / "eda_summary.json",
+        ROOT / "challenge" / "research_memory" / "literature_manifest.json",
         ROOT / "challenge" / "prepare_agent_data.py",
         ROOT / "challenge" / "run_aide_research.py",
         ROOT / "challenge" / "requirements-agent.txt",
         ROOT / "challenge" / "techjam_recsys" / "aide_portfolio.py",
         ROOT / "challenge" / "techjam_recsys" / "aide_reviewer.py",
         ROOT / "challenge" / "techjam_recsys" / "campaign_safety.py",
+        ROOT / "challenge" / "techjam_recsys" / "diagnostics.py",
+        ROOT / "challenge" / "techjam_recsys" / "eda.py",
+        ROOT / "challenge" / "techjam_recsys" / "literature.py",
         ROOT / "challenge" / "techjam_recsys" / "metrics.py",
         ROOT / "challenge" / "techjam_recsys" / "protocol.py",
+        ROOT / "challenge" / "techjam_recsys" / "prompt_context.py",
+        ROOT / "challenge" / "techjam_recsys" / "validation.py",
         ROOT / "aide" / "agent.py",
         ROOT / "aide" / "interpreter.py",
         ROOT / "aide" / "utils" / "__init__.py",
@@ -304,6 +393,10 @@ def artifact_hashes(log_dir: Path, node_id: str) -> dict[str, str]:
         path = Path(log_dir) / relative
         if path.exists():
             output[relative] = sha256_file(path)
+    diagnostics_relative = f"diagnostics/{node_id}.json"
+    diagnostics_path = Path(log_dir) / diagnostics_relative
+    if diagnostics_path.exists():
+        output[diagnostics_relative] = sha256_file(diagnostics_path)
     return output
 
 
@@ -323,33 +416,6 @@ def format_node_error(node: Node, parse_error: str | None) -> str | None:
     if parse_error:
         details.append(parse_error)
     return "\n".join(details) or "Unknown candidate failure"
-
-
-def uses_aide_seed_control(code: str) -> bool:
-    """Require the environment seed to flow into at least one RNG call."""
-
-    try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return False
-    seed_names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AnnAssign)):
-            value = getattr(node, "value", None)
-            if value is not None and "AIDE_SEED" in ast.unparse(value):
-                targets = getattr(node, "targets", [getattr(node, "target", None)])
-                for target in targets:
-                    if isinstance(target, ast.Name):
-                        seed_names.add(target.id)
-    rng_tokens = ("seed", "manual_seed", "default_rng")
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            name = ast.unparse(node.func)
-            if any(token in name for token in rng_tokens) and any(
-                isinstance(arg, ast.Name) and arg.id in seed_names for arg in node.args
-            ):
-                return True
-    return False
 
 
 def policy_rejection(violations: list[str]) -> ExecutionResult:
@@ -392,41 +458,130 @@ def wall_elapsed_seconds(started_at_unix: float) -> float:
     return max(0.0, time.time() - started_at_unix)
 
 
-def confirmation_seed_passes(metrics: dict[str, float] | None) -> bool:
-    """A parsed seed result passes only when every champion component improves."""
+def candidate_metrics_pass(metrics: dict[str, float] | None) -> bool:
+    """Pass only when one evaluated prediction strictly beats every champion metric."""
 
-    return bool(metrics and ChallengeMetric.from_mapping(metrics).beats_champion)
+    if metrics is None:
+        return False
+    try:
+        return all(
+            float(metrics[key]) > CHAMPION_VALID[key]
+            for key in ("GAUC", "nDCG@5", "primary")
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _is_sha256(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
+def single_run_candidate_evidence(record: TrialRecord | None) -> dict[str, object]:
+    """Build fail-closed evidence for one full-data, deterministic seed-0 result."""
+
+    if record is None:
+        return {"valid": False, "reason": "no qualifying candidate"}
+    prediction_key = next(
+        (
+            artifact_id
+            for artifact_id in record.artifact_ids
+            if artifact_id.endswith(".npy")
+        ),
+        None,
+    )
+    prediction_sha256 = (
+        record.artifact_sha256.get(prediction_key) if prediction_key else None
+    )
+    diagnostics_key = next(
+        (
+            artifact_id
+            for artifact_id in record.artifact_ids
+            if artifact_id.startswith("diagnostics/") and artifact_id.endswith(".json")
+        ),
+        None,
+    )
+    diagnostics_artifact_sha256 = (
+        record.artifact_sha256.get(diagnostics_key) if diagnostics_key else None
+    )
+    required_hashes = {
+        "record_sha256": record.record_sha256,
+        "code_sha256": record.code_sha256,
+        "prompt_sha256": record.prompt_sha256,
+        "campaign_manifest_sha256": record.campaign_manifest_sha256,
+        "source_sha256": record.source_sha256,
+        "input_sha256": record.input_sha256,
+        "dependency_sha256": record.dependency_sha256,
+        "evaluator_sha256": record.evaluator_sha256,
+        "prediction_sha256": prediction_sha256,
+        "diagnostics_sha256": diagnostics_artifact_sha256,
+        "internal_validation_sha256": record.internal_validation_sha256,
+    }
+    quality_gate_passed = candidate_metrics_pass(record.metrics)
+    hashes_valid = all(_is_sha256(value) for value in required_hashes.values())
+    valid = bool(
+        record.source == "aide_generated"
+        and record.status == "success"
+        and record.exit_status == "success"
+        and record.seed == 0
+        and record.evaluation_fidelity == "full"
+        and record.assignment_compliant is True
+        and bool((record.config or {}).get("card_complete"))
+        and record.diagnostics_sha256 == diagnostics_artifact_sha256
+        and quality_gate_passed
+        and hashes_valid
+    )
+    return {
+        "valid": valid,
+        "candidate_node_id": record.node_id,
+        "trial_id": record.trial_id,
+        "seed": record.seed,
+        "evaluation_fidelity": record.evaluation_fidelity,
+        "metrics": record.metrics,
+        "quality_gate_passed": quality_gate_passed,
+        **required_hashes,
+    }
 
 
 def campaign_final_designation(
     campaign_mode: str,
-    confirmation: dict[str, object] | None,
+    candidate_evidence: dict[str, object] | None,
     manual_interventions: int,
     clean_evidence: dict[str, object],
 ) -> tuple[str, bool, bool]:
-    """Return designation, robust-candidate acceptance, and clean acceptance."""
+    """Return designation, single-run acceptance, and clean acceptance."""
 
-    robust_candidate_accepted = bool(
-        confirmation and confirmation.get("accepted")
+    single_run_candidate_accepted = bool(
+        candidate_evidence and candidate_evidence.get("valid")
     )
     clean_campaign_accepted = bool(
         campaign_mode == "clean"
-        and robust_candidate_accepted
+        and single_run_candidate_accepted
         and manual_interventions == 0
         and clean_evidence.get("valid")
     )
     if clean_campaign_accepted:
         designation = "competition_ready"
-    elif robust_candidate_accepted:
-        designation = "robust_development_candidate"
+    elif single_run_candidate_accepted:
+        designation = "single_run_development_candidate"
     else:
         designation = "rejected"
-    return designation, robust_candidate_accepted, clean_campaign_accepted
+    return designation, single_run_candidate_accepted, clean_campaign_accepted
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument(
+        "--baseline-only",
+        action="store_true",
+        help="Run the deterministic organizer seed and diagnostics without any API call.",
+    )
     parser.add_argument("--steps", type=int, default=3)
     parser.add_argument("--model", default="gpt-5.4")
     parser.add_argument("--max-output-tokens-per-call", type=int, default=10_000)
@@ -441,7 +596,6 @@ def parse_args():
     parser.add_argument(
         "--campaign-mode", choices=("development", "clean"), default="development"
     )
-    parser.add_argument("--confirm-on-breakthrough", action="store_true")
     parser.add_argument(
         "--intervention-log",
         type=Path,
@@ -465,23 +619,68 @@ def parse_args():
         type=Path,
         default=ROOT / "challenge" / "private" / "api_spend.json",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--experiment-memory",
+        type=Path,
+        default=ROOT / "challenge" / "research_memory" / "experiment_memory.json",
+    )
+    parser.add_argument(
+        "--eda-summary",
+        type=Path,
+        default=ROOT / "challenge" / "research_memory" / "eda_summary.json",
+    )
+    parser.add_argument(
+        "--literature-manifest",
+        type=Path,
+        default=ROOT / "challenge" / "research_memory" / "literature_manifest.json",
+    )
+    return parser.parse_args(argv)
 
 
 def main() -> int:
     args = parse_args()
-    confirmation_requested = (
-        args.confirm_on_breakthrough or args.campaign_mode == "clean"
-    )
-    max_search_steps = 46 if confirmation_requested else 49
+    max_search_steps = MAX_ITERATIONS - 1
     if not 1 <= args.steps <= max_search_steps:
         raise ValueError(
             f"steps must be between 1 and {max_search_steps}; the organizer seed and "
-            "reserved deterministic confirmation attempts must stay within 50 iterations"
+            f"generated attempts must stay within {MAX_ITERATIONS} total iterations"
         )
-    prompt_hash = prompt_fingerprint()
+    context_paths = (
+        args.experiment_memory.resolve(),
+        args.eda_summary.resolve(),
+        args.literature_manifest.resolve(),
+    )
+    for context_path in context_paths:
+        if not context_path.exists():
+            raise RuntimeError(f"Frozen prompt context is missing: {context_path}")
+    experiment_memory = json.loads(args.experiment_memory.read_text(encoding="utf-8"))
+    memory_claim = experiment_memory.get("content_sha256")
+    memory_unsigned = dict(experiment_memory)
+    memory_unsigned.pop("content_sha256", None)
+    if memory_claim != canonical_sha256(memory_unsigned):
+        raise RuntimeError("Experiment-memory content hash is invalid")
+    eda_summary = json.loads(args.eda_summary.read_text(encoding="utf-8"))
+    literature_manifest = load_manifest(args.literature_manifest)
+    if args.campaign_mode == "clean" and literature_manifest.get("mode") != "frozen":
+        raise RuntimeError(
+            "Clean campaigns require a frozen offline literature manifest"
+        )
+    prompt_context = load_prompt_context(
+        ROOT,
+        experiment_memory_path=args.experiment_memory,
+        eda_summary_path=args.eda_summary,
+        literature_manifest_path=args.literature_manifest,
+    )
+    prompt_hash = prompt_fingerprint(context_paths)
+    experiment_memory_hash = str(memory_claim)
+    eda_hash = str(eda_summary.get("report_sha256") or canonical_sha256(eda_summary))
+    literature_hash = str(literature_manifest["manifest_sha256"])
+    scheduler_hash = canonical_sha256(
+        {"scheduler": "component-aware-pareto-v1", "max_debug_depth": 3}
+    )
     dry_run = {
-        "paid_execution": bool(args.execute),
+        "paid_execution": bool(args.execute and not args.baseline_only),
+        "baseline_only": bool(args.baseline_only),
         "model": args.model,
         "paid_iterations": args.steps,
         "api_calls_per_iteration": 1,
@@ -491,33 +690,48 @@ def main() -> int:
         "per_run_approval_required": False,
         "cost_notifications_usd": args.cost_notification_step_usd,
         "campaign_mode": args.campaign_mode,
-        "confirmation_required": confirmation_requested,
+        "campaign_seed": 0,
+        "evaluation_fidelity": "full",
+        "max_total_iterations": MAX_ITERATIONS,
         "prompt_version": PROMPT_VERSION,
         "prompt_sha256": prompt_hash,
+        "experiment_memory_sha256": experiment_memory_hash,
+        "eda_sha256": eda_hash,
+        "literature_sha256": literature_hash,
+        "scheduler_sha256": scheduler_hash,
+        "internal_validation_sha256": "computed from train.csv on --execute",
     }
-    if not args.execute:
+    if not args.execute and not args.baseline_only:
         print("DRY_RUN=" + json.dumps(dry_run, sort_keys=True))
         return 0
-    required = {
-        "input_usd_per_million": args.input_usd_per_million,
-        "output_usd_per_million": args.output_usd_per_million,
-    }
-    missing = [key for key, value in required.items() if value is None]
-    if missing:
-        raise RuntimeError(
-            "Paid run blocked; current pricing must be supplied: " + ", ".join(missing)
+    if args.baseline_only:
+        input_price = 0.0
+        output_price = 0.0
+        estimated_ceiling = 0.0
+    else:
+        required = {
+            "input_usd_per_million": args.input_usd_per_million,
+            "output_usd_per_million": args.output_usd_per_million,
+        }
+        missing = [key for key, value in required.items() if value is None]
+        if missing:
+            raise RuntimeError(
+                "Paid run blocked; current pricing must be supplied: "
+                + ", ".join(missing)
+            )
+        input_price = float(args.input_usd_per_million)
+        output_price = float(args.output_usd_per_million)
+        estimated_ceiling = estimate_uncached_cost(
+            args.max_input_tokens,
+            args.max_output_tokens,
+            input_price,
+            output_price,
         )
-    estimated_ceiling = estimate_uncached_cost(
-        args.max_input_tokens,
-        args.max_output_tokens,
-        args.input_usd_per_million,
-        args.output_usd_per_million,
-    )
-    if estimated_ceiling > args.max_run_usd:
-        raise RuntimeError(
-            f"Paid run blocked: token envelope estimates ${estimated_ceiling:.4f}, "
-            f"above the configured ${args.max_run_usd:.4f} run ceiling"
-        )
+        if estimated_ceiling > args.max_run_usd:
+            raise RuntimeError(
+                f"Paid run blocked: token envelope estimates ${estimated_ceiling:.4f}, "
+                f"above the configured ${args.max_run_usd:.4f} run ceiling"
+            )
     if not args.agent_data.exists():
         raise RuntimeError("Run challenge/prepare_agent_data.py first")
     if not args.validation_index.exists():
@@ -525,9 +739,10 @@ def main() -> int:
             "Evaluator index is missing; rerun challenge/prepare_agent_data.py so it "
             "is created outside the candidate input directory"
         )
-    load_dotenv(ROOT / ".env.local")
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not available")
+    if not args.baseline_only:
+        load_dotenv(ROOT / ".env.local")
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY is not available")
 
     cfg = _load_cfg(use_cli_args=False)
     cfg.data_dir = str(args.agent_data)
@@ -545,6 +760,7 @@ def main() -> int:
     cfg.agent.steps = args.steps
     cfg.agent.k_fold_validation = 1
     cfg.agent.metric_maximize = True
+    cfg.agent.data_preview = False
     # The immutable FM seed is the single draft. Every paid iteration must
     # improve or debug an evaluated node rather than spend money restarting.
     cfg.agent.search.num_drafts = 1
@@ -563,9 +779,30 @@ def main() -> int:
     input_hash = fingerprint_tree(
         cfg.workspace_dir / "input", names=CANDIDATE_INPUT_ALLOWLIST
     )
-    source_hash = fingerprint_sources(campaign_source_paths())
+    source_paths = tuple(
+        sorted(
+            {
+                Path(path).resolve()
+                for path in (*campaign_source_paths(), *context_paths)
+            },
+            key=str,
+        )
+    )
+    source_hash = fingerprint_sources(source_paths)
     dependency_hash = dependency_fingerprint()
     evaluator_hash = sha256_file(args.validation_index)
+    split_frame = pd.read_csv(
+        args.agent_data / "train.csv", usecols=["date", "time_ms"]
+    )
+    _, _, internal_split = last_days_holdout(split_frame)
+    del split_frame
+    internal_validation_hash = internal_split.manifest_sha256
+    scheduler_hash = canonical_sha256(
+        {
+            "scheduler": "component-aware-pareto-v1",
+            "max_debug_depth": int(cfg.agent.search.max_debug_depth),
+        }
+    )
     manifest = CampaignManifest(
         run_id=run_id,
         campaign_mode=args.campaign_mode,
@@ -574,6 +811,11 @@ def main() -> int:
         input_sha256=input_hash,
         dependency_sha256=dependency_hash,
         evaluator_sha256=evaluator_hash,
+        experiment_memory_sha256=experiment_memory_hash,
+        eda_sha256=eda_hash,
+        literature_sha256=literature_hash,
+        scheduler_sha256=scheduler_hash,
+        validation_sha256=internal_validation_hash,
     )
     cfg.log_dir.mkdir(parents=True, exist_ok=True)
     (cfg.log_dir / "campaign_manifest.json").write_text(
@@ -582,6 +824,7 @@ def main() -> int:
                 **manifest.__dict__,
                 "manifest_sha256": manifest.sha256,
                 "candidate_input_files": input_file_hashes,
+                "internal_validation": internal_split.to_dict(),
             },
             indent=2,
             sort_keys=True,
@@ -612,6 +855,13 @@ def main() -> int:
         journal=journal,
         result_reviewer=reviewer,
         scheduler=PortfolioScheduler(max_debug_depth=cfg.agent.search.max_debug_depth),
+        prompt_context=prompt_context,
+        allowed_eda_observation_ids={
+            str(item["id"]) for item in eda_summary.get("observations", [])
+        },
+        allowed_literature_citation_ids={
+            str(item["citation_id"]) for item in literature_manifest.get("notes", [])
+        },
     )
     interpreter = Interpreter(
         cfg.workspace_dir,
@@ -621,12 +871,12 @@ def main() -> int:
     )
     atexit.register(interpreter.cleanup_session)
     ledger = ExperimentLedger(cfg.log_dir / "iterations.jsonl")
-    tracker = ConvergenceTracker(max_iterations=min(args.steps + 1, 50))
+    tracker = ConvergenceTracker(max_iterations=min(args.steps + 1, MAX_ITERATIONS))
     backend.reset_usage_totals()
     backend.configure_cost_tracking(
         args.cumulative_cost_file,
-        args.input_usd_per_million,
-        args.output_usd_per_million,
+        input_price,
+        output_price,
         args.cost_notification_step_usd,
     )
     run_started = time.time()
@@ -634,7 +884,7 @@ def main() -> int:
 
     def assert_campaign_unchanged() -> None:
         current = {
-            "source": fingerprint_sources(campaign_source_paths()),
+            "source": fingerprint_sources(source_paths),
             "input": fingerprint_tree(
                 cfg.workspace_dir / "input", names=CANDIDATE_INPUT_ALLOWLIST
             ),
@@ -657,8 +907,9 @@ def main() -> int:
         violations = validate_candidate_source(code)
         if violations:
             return policy_rejection(violations)
+        # Seed zero is a runner invariant, not a caller-controlled campaign option.
         interpreter.execution_policy = candidate_execution_policy(
-            cfg.workspace_dir, seed=int(os.environ.get("AIDE_SEED", "0"))
+            cfg.workspace_dir, seed=0
         )
         return interpreter.run(code, reset_session)
 
@@ -671,6 +922,7 @@ def main() -> int:
     agent.parse_exec_result(seed, execute(seed.code, True))
     journal.append(seed)
     seed_metrics, seed_error = parse_metrics(seed.analysis)
+    seed_artifact_hashes = artifact_hashes(cfg.log_dir, seed.id)
     seed_record = TrialRecord(
         iteration=0,
         hypothesis=seed.plan,
@@ -692,18 +944,28 @@ def main() -> int:
         prompt_version=PROMPT_VERSION,
         assignment_family="official_fm_seed",
         seed=0,
+        evaluation_fidelity="full",
+        evaluator_sha256=evaluator_hash,
         artifact_ids=(
-            [f"predictions/{seed.id}.npy", f"predictions/{seed.id}.csv"]
+            [
+                f"predictions/{seed.id}.npy",
+                f"predictions/{seed.id}.csv",
+                f"diagnostics/{seed.id}.json",
+            ]
             if seed_metrics
             else []
         ),
-        artifact_sha256=artifact_hashes(cfg.log_dir, seed.id),
+        artifact_sha256=seed_artifact_hashes,
         run_id=run_id,
         campaign_manifest_sha256=manifest.sha256,
         declared_model_family="official_fm_seed",
         assignment_compliant=True,
         scheduler_action="seed",
         scheduler_reason="Immutable organizer FM ancestry root.",
+        scheduler_feature_vector={"organizer_root": 1.0},
+        pareto_frontier_member=True,
+        internal_validation_sha256=internal_validation_hash,
+        diagnostics_sha256=(seed_artifact_hashes.get(f"diagnostics/{seed.id}.json")),
         decision="accepted_as_ancestry_root" if seed_metrics else "failed",
         error_type=seed.exc_type,
         error_info=seed.exc_info,
@@ -713,6 +975,7 @@ def main() -> int:
         dependency_sha256=dependency_hash,
     )
     ledger.append(seed_record)
+    agent.scheduler.observe(seed_record, reviewer.diagnostics_by_node.get(seed.id, {}))
     node_trial_ids[seed.id] = seed_record.trial_id
     save_run(cfg, journal)
     if not seed_metrics:
@@ -720,7 +983,8 @@ def main() -> int:
     tracker.observe(float(seed_metrics["primary"]))
     assert_campaign_unchanged()
 
-    for iteration in range(1, args.steps + 1):
+    search_iterations = () if args.baseline_only else range(1, args.steps + 1)
+    for iteration in search_iterations:
         usage_before = backend.get_usage_totals()
         remaining_output = args.max_output_tokens - usage_before["output_tokens"]
         retry_reserve = args.max_output_tokens_per_call
@@ -739,6 +1003,19 @@ def main() -> int:
             node.plan or "", fallback_family=agent.current_assignment.family
         )
         assignment = agent.current_assignment
+        diagnostics_record = reviewer.diagnostics_by_node.get(node.id, {})
+        candidate_artifact_hashes = artifact_hashes(cfg.log_dir, node.id)
+        frontier_ids = {
+            candidate.id for candidate in pareto_frontier(journal.good_nodes)
+        }
+        input_tokens = usage_after["input_tokens"] - usage_before["input_tokens"]
+        output_tokens = usage_after["output_tokens"] - usage_before["output_tokens"]
+        actual_api_cost = estimate_uncached_cost(
+            input_tokens,
+            output_tokens,
+            input_price,
+            output_price,
+        )
         can_repair = (
             node.is_buggy and node.debug_depth < agent.scheduler.max_debug_depth
         )
@@ -765,18 +1042,17 @@ def main() -> int:
                 node_trial_ids.get(node.parent.id) if node.parent else None
             ),
             code_diff=code_diff(node),
-            error=format_node_error(node, parse_error),
+            error=format_node_error(
+                node,
+                parse_error or "; ".join(spec.get("validation_errors") or []) or None,
+            ),
             recovery=None,
             wall_seconds=wall_elapsed_seconds(trial_started),
             candidate_exec_seconds=bounded_candidate_exec_seconds(
                 node.exec_time, args.per_trial_timeout
             ),
-            llm_input_tokens=(
-                usage_after["input_tokens"] - usage_before["input_tokens"]
-            ),
-            llm_output_tokens=(
-                usage_after["output_tokens"] - usage_before["output_tokens"]
-            ),
+            llm_input_tokens=input_tokens,
+            llm_output_tokens=output_tokens,
             manual_interventions=count_manual_interventions(event_path),
             source="aide_generated",
             node_id=node.id,
@@ -785,12 +1061,18 @@ def main() -> int:
             prompt_version=PROMPT_VERSION,
             assignment_family=agent.current_assignment.family,
             seed=0,
+            evaluation_fidelity="full",
+            evaluator_sha256=evaluator_hash,
             artifact_ids=(
-                [f"predictions/{node.id}.npy", f"predictions/{node.id}.csv"]
+                [
+                    f"predictions/{node.id}.npy",
+                    f"predictions/{node.id}.csv",
+                    f"diagnostics/{node.id}.json",
+                ]
                 if metrics
                 else []
             ),
-            artifact_sha256=artifact_hashes(cfg.log_dir, node.id),
+            artifact_sha256=candidate_artifact_hashes,
             run_id=run_id,
             campaign_manifest_sha256=manifest.sha256,
             declared_model_family=spec.get("declared_model_family"),
@@ -804,6 +1086,14 @@ def main() -> int:
                 {"family": family, "utility": utility}
                 for family, utility in assignment.alternatives
             ],
+            scheduler_feature_vector=dict(assignment.feature_vector),
+            pareto_frontier_member=node.id in frontier_ids,
+            expected_api_cost_usd=(args.max_run_usd / max(1, args.steps)),
+            actual_api_cost_usd=actual_api_cost,
+            internal_validation_sha256=internal_validation_hash,
+            diagnostics_sha256=candidate_artifact_hashes.get(
+                f"diagnostics/{node.id}.json"
+            ),
             decision=decision,
             recovery_outcome=recovery_outcome,
             error_type=node.exc_type or ("MetricParseError" if parse_error else None),
@@ -814,6 +1104,7 @@ def main() -> int:
             dependency_sha256=dependency_hash,
         )
         ledger.append(candidate_record)
+        agent.scheduler.observe(candidate_record, diagnostics_record)
         node_trial_ids[node.id] = candidate_record.trial_id
         save_run(cfg, journal)
         assert_campaign_unchanged()
@@ -835,172 +1126,33 @@ def main() -> int:
         metrics, _ = parse_metrics(node.analysis)
         if metrics:
             generated.append((node, metrics, ChallengeMetric.from_mapping(metrics)))
-    best_generated = max(generated, key=lambda item: item[2].primary, default=None)
-    breakthroughs = [item for item in generated if item[2].beats_champion]
-    breakthrough = max(breakthroughs, key=lambda item: item[2].primary, default=None)
-
-    confirmation: dict[str, object] | None = None
-    if confirmation_requested and breakthrough is not None:
-        winning_node, _, _ = breakthrough
-        seed_results = []
-        original_prediction = cfg.log_dir / "predictions" / f"{winning_node.id}.npy"
-        original_prediction_sha256 = (
-            sha256_file(original_prediction) if original_prediction.exists() else None
+    best_generated = max(
+        generated, key=lambda item: float(item[1]["primary"]), default=None
+    )
+    breakthroughs = [item for item in generated if candidate_metrics_pass(item[1])]
+    breakthrough = max(
+        breakthroughs, key=lambda item: float(item[1]["primary"]), default=None
+    )
+    winning_record = None
+    if breakthrough is not None:
+        winning_node = breakthrough[0]
+        winning_record = next(
+            (
+                record
+                for record in reversed(ledger.read(validate_chain=True))
+                if record.node_id == winning_node.id
+            ),
+            None,
         )
-        original_seed = os.environ.get("AIDE_SEED")
-        try:
-            for confirmation_seed in (0, 1, 2):
-                if (
-                    wall_elapsed_seconds(run_started) + args.per_trial_timeout
-                    >= tracker.max_wall_seconds
-                ):
-                    seed_results.append(
-                        {
-                            "seed": confirmation_seed,
-                            "metrics": None,
-                            "error": "Insufficient six-hour wall-clock reserve.",
-                        }
-                    )
-                    break
-                os.environ["AIDE_SEED"] = str(confirmation_seed)
-                confirmation_started = time.time()
-                confirmation_node = Node(
-                    plan=f"Deterministic seed-{confirmation_seed} confirmation.",
-                    code=winning_node.code,
-                    parent=winning_node,
-                    candidate_spec=dict(winning_node.candidate_spec),
-                )
-                agent.parse_exec_result(
-                    confirmation_node, execute(confirmation_node.code, True)
-                )
-                journal.append(confirmation_node)
-                confirmed_metrics, confirmation_error = parse_metrics(
-                    confirmation_node.analysis
-                )
-                seed_passed = confirmation_seed_passes(confirmed_metrics)
-                confirmation_record = TrialRecord(
-                    iteration=len(journal.nodes) - 1,
-                    hypothesis=confirmation_node.plan,
-                    model_family=winning_node.candidate_spec.get(
-                        "model_family", "research_wildcard"
-                    ),
-                    status="evaluated" if confirmed_metrics else "failed",
-                    config=dict(winning_node.candidate_spec),
-                    metrics=confirmed_metrics,
-                    parent_trial_id=node_trial_ids.get(winning_node.id),
-                    code_diff="",
-                    error=format_node_error(confirmation_node, confirmation_error),
-                    wall_seconds=wall_elapsed_seconds(confirmation_started),
-                    candidate_exec_seconds=bounded_candidate_exec_seconds(
-                        confirmation_node.exec_time, args.per_trial_timeout
-                    ),
-                    manual_interventions=count_manual_interventions(event_path),
-                    source="aide_seed_confirmation",
-                    node_id=confirmation_node.id,
-                    code_sha256=candidate_code_sha256(confirmation_node.code),
-                    prompt_sha256=prompt_hash,
-                    prompt_version=PROMPT_VERSION,
-                    assignment_family=winning_node.candidate_spec.get(
-                        "assignment_family"
-                    ),
-                    seed=confirmation_seed,
-                    artifact_ids=(
-                        [
-                            f"predictions/{confirmation_node.id}.npy",
-                            f"predictions/{confirmation_node.id}.csv",
-                        ]
-                        if confirmed_metrics
-                        else []
-                    ),
-                    artifact_sha256=artifact_hashes(cfg.log_dir, confirmation_node.id),
-                    run_id=run_id,
-                    campaign_manifest_sha256=manifest.sha256,
-                    declared_model_family=winning_node.candidate_spec.get(
-                        "declared_model_family"
-                    ),
-                    assignment_compliant=True,
-                    scheduler_action="confirm_seed",
-                    scheduler_reason="Behavioral three-seed robustness confirmation.",
-                    decision=(
-                        "seed_pass"
-                        if seed_passed
-                        else "seed_fail" if confirmed_metrics else "rejected"
-                    ),
-                    error_type=confirmation_node.exc_type,
-                    error_info=confirmation_node.exc_info,
-                    exit_status="success" if confirmed_metrics else "failed",
-                    source_sha256=source_hash,
-                    input_sha256=input_hash,
-                    dependency_sha256=dependency_hash,
-                )
-                ledger.append(confirmation_record)
-                node_trial_ids[confirmation_node.id] = confirmation_record.trial_id
-                seed_results.append(
-                    {
-                        "seed": confirmation_seed,
-                        "metrics": confirmed_metrics,
-                        "error": confirmation_error,
-                        "passed_champion": seed_passed,
-                        "prediction_sha256": confirmation_record.artifact_sha256.get(
-                            f"predictions/{confirmation_node.id}.npy"
-                        ),
-                    }
-                )
-                assert_campaign_unchanged()
-        finally:
-            if original_seed is None:
-                os.environ.pop("AIDE_SEED", None)
-            else:
-                os.environ["AIDE_SEED"] = original_seed
-
-        complete_metrics = [
-            item["metrics"] for item in seed_results if item.get("metrics") is not None
-        ]
-        mean_metrics = None
-        robust = False
-        seed_controlled = uses_aide_seed_control(winning_node.code)
-        same_seed_reproduced = bool(
-            seed_results
-            and seed_results[0].get("seed") == 0
-            and seed_results[0].get("prediction_sha256") == original_prediction_sha256
-        )
-        all_seed_breakthroughs = False
-        if len(complete_metrics) == 3:
-            mean_metrics = {
-                key: sum(float(metric[key]) for metric in complete_metrics) / 3.0
-                for key in ("GAUC", "nDCG@5", "primary")
-            }
-            all_seed_breakthroughs = all(
-                ChallengeMetric.from_mapping(metric).beats_champion
-                for metric in complete_metrics
-            )
-            robust = (
-                mean_metrics["GAUC"] > CHAMPION_VALID["GAUC"]
-                and mean_metrics["nDCG@5"] > CHAMPION_VALID["nDCG@5"]
-                and mean_metrics["primary"] >= ROBUST_PRIMARY_TARGET
-                and all_seed_breakthroughs
-                and seed_controlled
-                and same_seed_reproduced
-            )
-        confirmation = {
-            "candidate_node_id": winning_node.id,
-            "seed_controlled": seed_controlled,
-            "same_seed_reproduced": same_seed_reproduced,
-            "all_seeds_beat_champion": all_seed_breakthroughs,
-            "seeds": seed_results,
-            "mean_metrics": mean_metrics,
-            "robust_target_primary": ROBUST_PRIMARY_TARGET,
-            "accepted": robust,
-        }
-        save_run(cfg, journal)
+    candidate_evidence = single_run_candidate_evidence(winning_record)
 
     interpreter.cleanup_session()
     usage = backend.get_usage_totals()
     run_estimated_cost_usd = estimate_uncached_cost(
         int(usage.get("input_tokens", 0)),
         int(usage.get("output_tokens", 0)),
-        args.input_usd_per_million,
-        args.output_usd_per_million,
+        input_price,
+        output_price,
     )
     candidate_exec_seconds_total = sum(
         float(record.candidate_exec_seconds or 0.0)
@@ -1014,52 +1166,54 @@ def main() -> int:
         "run_completed",
         details={
             "manifest_sha256": manifest.sha256,
-            "single_seed_breakthrough": breakthrough is not None,
-            "confirmation_accepted": bool(
-                confirmation and confirmation.get("accepted")
-            ),
+            "single_run_candidate_accepted": bool(candidate_evidence.get("valid")),
+            "candidate_node_id": candidate_evidence.get("candidate_node_id"),
         },
     )
     final_manual_interventions = count_manual_interventions(event_path)
     clean_evidence = events.clean_evidence(manifest.sha256)
-    final_designation, robust_candidate_accepted, clean_campaign_accepted = (
+    final_designation, single_run_candidate_accepted, clean_campaign_accepted = (
         campaign_final_designation(
             args.campaign_mode,
-            confirmation,
+            candidate_evidence,
             final_manual_interventions,
             clean_evidence,
         )
     )
-    confirmed_candidate_node_id = (
-        confirmation.get("candidate_node_id") if confirmation else None
-    )
+    candidate_node_id = candidate_evidence.get("candidate_node_id")
     result = {
         "run_id": run_id,
         "max_run_usd": args.max_run_usd,
         "estimated_uncached_cost_ceiling": estimated_ceiling,
         "pricing_usd_per_million": {
-            "input": args.input_usd_per_million,
-            "output": args.output_usd_per_million,
+            "input": input_price,
+            "output": output_price,
         },
+        "baseline_only": args.baseline_only,
         "campaign_mode": args.campaign_mode,
         "prompt_version": PROMPT_VERSION,
         "prompt_sha256": prompt_hash,
+        "experiment_memory_sha256": experiment_memory_hash,
+        "eda_sha256": eda_hash,
+        "literature_sha256": literature_hash,
+        "scheduler_sha256": scheduler_hash,
+        "internal_validation_sha256": internal_validation_hash,
         "best_primary": float(best.metric.value) if best else None,
         "best_metrics": best_metrics,
         "best_aide_generated_metrics": best_aide_metrics,
         "published_baseline": BASELINE_VALID,
         "reference_champion": CHAMPION_VALID,
-        "single_seed_breakthrough": breakthrough is not None,
-        "breakthrough": robust_candidate_accepted,
-        "confirmation": confirmation,
+        "single_run_breakthrough": single_run_candidate_accepted,
+        "breakthrough": single_run_candidate_accepted,
+        "candidate_evidence": candidate_evidence,
         "final_designation": final_designation,
-        "robust_candidate_accepted": robust_candidate_accepted,
-        "robust_candidate_node_id": (
-            confirmed_candidate_node_id if robust_candidate_accepted else None
+        "single_run_candidate_accepted": single_run_candidate_accepted,
+        "single_run_candidate_node_id": (
+            candidate_node_id if single_run_candidate_accepted else None
         ),
         "clean_campaign_accepted": clean_campaign_accepted,
         "accepted_candidate_node_id": (
-            confirmed_candidate_node_id if clean_campaign_accepted else None
+            candidate_node_id if clean_campaign_accepted else None
         ),
         "best_solution_designation": (
             "accepted_competition_solution"
@@ -1088,8 +1242,10 @@ def main() -> int:
                 "best_solution_designation": result["best_solution_designation"],
                 "clean_campaign_accepted": clean_campaign_accepted,
                 "final_designation": final_designation,
-                "robust_candidate_accepted": robust_candidate_accepted,
-                "single_seed_breakthrough": breakthrough is not None,
+                "single_run_candidate_accepted": single_run_candidate_accepted,
+                "single_run_breakthrough": single_run_candidate_accepted,
+                "seed": candidate_evidence.get("seed"),
+                "evaluation_fidelity": candidate_evidence.get("evaluation_fidelity"),
             },
             indent=2,
             sort_keys=True,

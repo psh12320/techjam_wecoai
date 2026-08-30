@@ -18,6 +18,21 @@ The durable API tracker at [`challenge/private/api_spend.json`](../challenge/pri
 
 This tracker is machine-private and ignored by Git. The amount above was read from the tracker, not reconstructed from conversation history.
 
+## Post-checkpoint reset implementation
+
+Phase 1 was committed and pushed to `origin/techjam` as `04a8d32` (`checkpoint: autonomous KuaiRand AIDE research harness`). After that push, the reset was implemented without a paid API call:
+
+- acceptance is now exactly one full-fidelity deterministic seed-0 execution; seeds 1 and 2, robust-mean thresholds, confirmation reservations, and the confirmation CLI were removed;
+- `task.md` is a thin benchmark contract, while hard constraints, ledger-derived experiment memory, the optional method menu, EDA evidence, and literature evidence are separate bounded prompt sections;
+- candidate cards now require exact parent ID/code hash, EDA and literature citation IDs, one scientific change, hypothesis, features/losses, targeted metric effects, runtime/memory, risks, abort/falsification criteria, fidelity, and the internal-validation protocol;
+- the real label-safe EDA found train long-view rate `0.33662`, cold-user rows `1.593%`, user-tag prior support `77.44%`, median/p90 validation history `51/141`, median/p90 candidates per user `4/12`, median watch ratio `0.1026`, completion share `15.23%`, and hour-distribution TVD `0.0422`;
+- nine frozen primary-source literature notes cover FwFM, DIN, D2Q, D2Co, censored watch time, LambdaLoss, DCN-V2, LightGCN, and conservative ensemble selection; generated programs remain offline and receive citations, not external code or weights;
+- the scheduler now maintains a GAUC/nDCG/primary Pareto frontier and scores family-parent pairs using weaker-component gain, floor preservation, exploration, prediction diversity, runtime/API cost, timeouts/failures, near-duplicate/public-tuning penalties, and lineage compatibility;
+- internal validation is anchored on the last three labeled training days but split at a strict event-time boundary because KuaiRand date labels overlap slightly in epoch time; all equal timestamps go to holdout;
+- the trusted reviewer writes aggregate-only segment/top-5/diversity diagnostics and no row-level validation labels or predictions.
+
+An API-free v21 baseline-only campaign completed with `0` requests and `$0` incremental cost. It reproduced GAUC `0.6671326321610643`, nDCG@5 `0.5358048805448538`, primary `0.601468756352959`, wrote valid aggregate diagnostics, recorded prompt hash `8618a8a433ad2461d55eb110f86ff4ad3d1095ff7cc7a038ca49c5b40dc2e046`, and used internal-validation hash `6fac0c1b9244fc9f31cf3c46e2201e45e5fff17e7ac64a108c492c902b0d759a`. This verifies the reset harness, not a winning clean candidate.
+
 ## Competition objective and official constraints
 
 The task is within-user ranking over KuaiRand-Pure logged impressions. The native target is `long_view`. The deterministic metrics are GAUC and nDCG@5, with:
@@ -325,6 +340,14 @@ python -m venv .venv
   --output-usd-per-million 15 --campaign-mode development
 ```
 
+### API-free baseline and diagnostics smoke
+
+```powershell
+.\.venv\Scripts\python.exe challenge\run_aide_research.py `
+  --baseline-only --steps 1 --campaign-mode development `
+  --run-id techjam-aide-v21-baseline-static
+```
+
 ### Two-iteration smoke campaign (`$0.50` ceiling)
 
 ```powershell
@@ -347,7 +370,7 @@ python -m venv .venv
   --run-id techjam-aide-portfolio-dev-<version>
 ```
 
-The current code can optionally add `--confirm-on-breakthrough`, which launches the historical three-seed confirmation. Do not use that flag after Phase 2; the requested future development policy is one fixed seed `0` per candidate.
+Every generated candidate is executed exactly once with fixed seed `0`. The removed `--confirm-on-breakthrough` option is rejected by the parser.
 
 ### Fresh clean campaign (`$5` ceiling)
 
@@ -360,20 +383,16 @@ The current code can optionally add `--confirm-on-breakthrough`, which launches 
   --run-id techjam-aide-portfolio-clean-<version>
 ```
 
-At this checkpoint, `campaign-mode clean` still automatically invokes seeds `0,1,2` if it finds a breakthrough. Phase 2 must change that before the next claimed clean run. The clean command must be rerun from the organizer seed only after prompt, scheduler, EDA/literature memory, dependencies, and safety manifest are frozen.
+The clean command starts from the organizer seed and uses only the frozen prompt, experiment memory, EDA summary, literature manifest, scheduler configuration, dependency lock, evaluator, and safety manifest. It never performs online literature lookup or multi-seed confirmation.
 
 ## Current limitations and prioritized next work
 
-1. **Remove automatic three-seed acceptance.** Train/evaluate every candidate once with deterministic seed `0`; keep seed and prediction hashes but remove seeds `1,2` and the `0.6050330262752837` mean target from CLI behavior, summaries, and tests.
-2. **Refactor research context.** Separate non-negotiable hard constraints, factual experiment memory, and an optional method menu. Stop prescribing one fixed solution.
-3. **Add autonomous EDA.** Produce cached machine-readable and concise prompt summaries covering schema, imbalance, overlap/cold start, history/candidate-set support, time/duration drift, segment metrics, and exit correlations. Every hypothesis should cite an EDA observation.
-4. **Add bounded literature research.** Cache primary-source metadata and applicability notes. Candidate programs must remain offline and implement methods originally; final clean mode should use a frozen cited literature manifest.
-5. **Upgrade scheduler.** Maintain a GAUC/nDCG/primary Pareto frontier and include weaker-component gain, floor preservation, prediction diversity, runtime/timeout risk, repair history, parent compatibility, and API/compute cost.
-6. **Stabilize the fastest rich-FM/DCN/history backbone.** Reproduce it comfortably under timeout and checkpoint on the exact emitted prediction. Resolve v20's seed-0 replay mismatch before adding complexity.
-7. **Build an nDCG@5 specialist.** Preserve the GAUC backbone, then test a tiny same-user BCE+RankNet/Lambda@5 residual or conservative normalized blend. Do not let GAUC fall below its floor.
-8. **Test bounded diversity.** Revisit the detached duration auxiliary, a much smaller CatBoost residual, and one coarse OOF ensemble. Use DIN-lite only if EDA demonstrates enough candidate-aware sequential support. Revisit FwFM/LightGCN only with supporting evidence.
-9. **Strengthen validation discipline.** Add an internal chronological split, multi-fidelity screens, coarse preregistered public-validation decisions, and segment/correlation/learning-curve diagnostics.
-10. **Freeze and prove autonomy.** After development, freeze prompt hash, EDA summary, literature memory, scheduler, dependency pins, and safety manifest. Run a fresh zero-intervention clean campaign from the organizer baseline and accept only a generated seed-0 candidate that beats all three floors.
+1. **Run a bounded two-iteration paid smoke.** Confirm the new candidate-card format, evidence citations, family assignment, autonomous repair, and cost ledger under the `$0.50` ceiling.
+2. **Stabilize the fastest rich-FM/DCN/history backbone.** Reproduce it comfortably under timeout and checkpoint on the exact emitted prediction. Resolve v20's seed-0 replay mismatch before adding complexity.
+3. **Prioritize the literature/EDA-backed duration branch.** Preserve the successful RAD direction, then compare one cached D2Q auxiliary inside the same training loop; do not add a second model/refit stage.
+4. **Build an nDCG@5 specialist.** Preserve the GAUC backbone, then test a tiny same-user BCE-dominant Lambda@5 residual or conservative normalized blend.
+5. **Use multi-fidelity only for search efficiency.** Screen variants on the internal chronological split, but require full fidelity for any accepted node and record both manifests.
+6. **Freeze and prove autonomy.** After development evidence stabilizes, run a fresh zero-intervention clean campaign and accept only an AIDE-generated seed-0 candidate that beats every component floor.
 
 ## Commit-safety warning
 

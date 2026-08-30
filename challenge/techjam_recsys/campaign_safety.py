@@ -90,6 +90,11 @@ class CampaignManifest:
     input_sha256: str
     dependency_sha256: str
     evaluator_sha256: str
+    experiment_memory_sha256: str = ""
+    eda_sha256: str = ""
+    literature_sha256: str = ""
+    scheduler_sha256: str = ""
+    validation_sha256: str = ""
     created_at_unix: float = field(default_factory=time.time)
 
     @property

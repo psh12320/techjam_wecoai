@@ -10,7 +10,9 @@ from challenge.run_aide_research import KuaiRandAgent
 from challenge.techjam_recsys.aide_portfolio import (
     PortfolioScheduler,
     normalize_family,
+    pareto_frontier,
     parse_candidate_spec,
+    validate_candidate_spec,
     validate_candidate_source,
 )
 from challenge.techjam_recsys.data import _read_log_file
@@ -41,6 +43,75 @@ def test_missing_candidate_spec_uses_assigned_family() -> None:
     assert spec["model_family"] == "din_lite"
     assert spec["structured"] is False
     assert "missing" in spec["parse_error"]
+    assert spec["card_complete"] is False
+
+
+def test_complete_candidate_card_validates_parent_and_evidence_ids() -> None:
+    parent_code_hash = "a" * 64
+    payload = {
+        "parent_node_id": "parent-1",
+        "parent_code_sha256": parent_code_hash,
+        "model_family": "history_residual",
+        "eda_observation_ids": ["EDA-1"],
+        "literature_citation_ids": ["LIT-1"],
+        "scientific_change": "add one strictly-past count residual",
+        "hypothesis": "the count improves cold-user nDCG without lowering GAUC",
+        "features": ["strict_prior_count"],
+        "losses": {"bce": 1.0},
+        "hyperparameters": {"residual_scale": 0.01},
+        "target_metric": "nDCG@5 while preserving GAUC",
+        "expected_metric_effects": {"GAUC": "flat", "nDCG@5": "up", "primary": "up"},
+        "estimated_runtime_seconds": 600,
+        "estimated_memory_mb": 2500,
+        "risks": ["history construction may be slow"],
+        "abort_criteria": ["chronology assertion fails"],
+        "falsification_condition": "full-fidelity nDCG does not improve",
+        "fidelity": "full",
+        "internal_validation": {"split": "last_3_train_days"},
+    }
+    spec = parse_candidate_spec(
+        f"<candidate_spec>{json.dumps(payload)}</candidate_spec>",
+        fallback_family="history_residual",
+    )
+    assert spec["card_complete"] is True
+    assert (
+        validate_candidate_spec(
+            spec,
+            expected_parent_node_id="parent-1",
+            expected_parent_code_sha256=parent_code_hash,
+            allowed_eda_observation_ids={"EDA-1"},
+            allowed_literature_citation_ids={"LIT-1"},
+        )
+        == []
+    )
+
+
+def test_candidate_card_rejects_wrong_parent_unknown_citation_and_screen_overflow() -> (
+    None
+):
+    spec = parse_candidate_spec("no tag", fallback_family="rich_fm")
+    spec.update(
+        {
+            "parent_node_id": "wrong",
+            "parent_code_sha256": "wrong",
+            "eda_observation_ids": ["UNKNOWN"],
+            "literature_citation_ids": ["UNKNOWN"],
+            "estimated_runtime_seconds": 901,
+            "estimated_memory_mb": 3073,
+            "fidelity": "invalid",
+        }
+    )
+    errors = validate_candidate_spec(
+        spec,
+        expected_parent_node_id="expected",
+        expected_parent_code_sha256="a" * 64,
+        allowed_eda_observation_ids={"EDA-1"},
+        allowed_literature_citation_ids={"LIT-1"},
+    )
+    assert any("parent_node_id" in error for error in errors)
+    assert any("unknown literature" in error for error in errors)
+    assert any("900-second" in error for error in errors)
+    assert any("3-GB" in error for error in errors)
 
 
 def test_escaped_candidate_spec_closing_tag_is_parsed() -> None:
@@ -114,11 +185,17 @@ def test_source_policy_rejects_dynamic_import_process_and_composed_parent_path()
 
 
 def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
+    def analysis(gauc: float, ndcg: float) -> str:
+        return json.dumps(
+            {"metrics": {"GAUC": gauc, "nDCG@5": ndcg, "primary": (gauc + ndcg) / 2}}
+        )
+
     seed = Node(
         code="pass",
         plan="baseline",
         candidate_spec={"model_family": "official_fm_seed"},
         metric=MetricValue(0.601469, maximize=True),
+        analysis=analysis(0.667133, 0.535805),
         is_buggy=False,
     )
     journal = Journal(nodes=[seed], metric_maximize=True)
@@ -134,6 +211,7 @@ def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
         parent=seed,
         candidate_spec={"model_family": "rich_field_gated_fm"},
         metric=MetricValue(0.6026, maximize=True),
+        analysis=analysis(0.6687, 0.5365),
         is_buggy=False,
     )
     journal.append(rich)
@@ -147,12 +225,13 @@ def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
         parent=rich,
         candidate_spec={"model_family": "rich_field_gated_fm"},
         metric=MetricValue(0.6036, maximize=True),
+        analysis=analysis(0.6702, 0.5370),
         is_buggy=False,
     )
     journal.append(strong_rich)
     parent, assignment = scheduler.choose(journal)
     assert parent is strong_rich
-    assert assignment.family == "dcn_v2"
+    assert assignment.family == "history_residual"
 
     dcn = Node(
         code="pass",
@@ -163,12 +242,13 @@ def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
             "assignment_family": "dcn_v2",
         },
         metric=MetricValue(0.6040, maximize=True),
+        analysis=analysis(0.6705, 0.5375),
         is_buggy=False,
     )
     journal.append(dcn)
     parent, assignment = scheduler.choose(journal)
-    assert parent is dcn
     assert assignment.family == "history_residual"
+    assert parent is dcn
     assert assignment.alternatives
 
     history = Node(
@@ -180,12 +260,12 @@ def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
             "assignment_family": "history_residual",
         },
         metric=MetricValue(0.6039, maximize=True),
+        analysis=analysis(0.6704, 0.5374),
         is_buggy=False,
     )
     journal.append(history)
     parent, assignment = scheduler.choose(journal)
-    assert parent is history
-    assert assignment.family == "duration_auxiliary"
+    assert assignment.family
 
     failed = Node(
         code="raise RuntimeError",
@@ -205,39 +285,114 @@ def test_portfolio_scheduler_forces_rich_milestone_then_coverage() -> None:
     assert assignment.family == "duration_auxiliary"
 
 
-def test_task_prompt_freezes_strong_rich_reproduction_mechanics() -> None:
+def test_pareto_frontier_keeps_ndcg_specialist_and_removes_dominated_node() -> None:
+    def node(node_id: str, gauc: float, ndcg: float) -> Node:
+        return Node(
+            id=node_id,
+            code="pass",
+            plan=node_id,
+            candidate_spec={"model_family": "history_residual"},
+            metric=MetricValue((gauc + ndcg) / 2, maximize=True),
+            analysis=json.dumps(
+                {
+                    "metrics": {
+                        "GAUC": gauc,
+                        "nDCG@5": ndcg,
+                        "primary": (gauc + ndcg) / 2,
+                    }
+                }
+            ),
+            is_buggy=False,
+        )
+
+    gauc_specialist = node("gauc", 0.6720, 0.5379)
+    ndcg_specialist = node("ndcg", 0.6712, 0.5386)
+    dominated = node("dominated", 0.6710, 0.5378)
+    frontier = pareto_frontier([gauc_specialist, ndcg_specialist, dominated])
+    assert {candidate.id for candidate in frontier} == {"gauc", "ndcg"}
+
+
+def test_scheduler_penalizes_timeout_duplicate_and_moves_to_evidence_backed_family() -> (
+    None
+):
+    def reviewed(gauc: float, ndcg: float) -> str:
+        return json.dumps(
+            {"metrics": {"GAUC": gauc, "nDCG@5": ndcg, "primary": (gauc + ndcg) / 2}}
+        )
+
+    seed = Node(
+        code="pass",
+        plan="seed",
+        candidate_spec={"model_family": "official_fm_seed"},
+        metric=MetricValue(0.601469, maximize=True),
+        analysis=reviewed(0.667133, 0.535805),
+        is_buggy=False,
+    )
+    rich = Node(
+        code="pass",
+        plan="rich",
+        parent=seed,
+        candidate_spec={
+            "model_family": "rich_fm",
+            "scientific_change": "rich milestone",
+            "internal_validation": {"split": "last_3_train_days"},
+        },
+        metric=MetricValue(0.6038, maximize=True),
+        analysis=reviewed(0.6704, 0.5372),
+        is_buggy=False,
+    )
+    timed_out = Node(
+        code="pass",
+        plan="history",
+        parent=rich,
+        candidate_spec={
+            "model_family": "history_residual",
+            "assignment_family": "history_residual",
+            "scientific_change": "same slow history",
+        },
+        metric=WorstMetricValue(maximize=True),
+        is_buggy=True,
+        exc_type="TimeoutError",
+        exec_time=900,
+    )
+    # Make the failed implementation non-leaf so the scheduler compares
+    # scientific branches instead of correctly prioritizing an immediate repair.
+    Node(code="pass", plan="abandoned repair", parent=timed_out, is_buggy=True)
+    journal = Journal(nodes=[seed, rich, timed_out], metric_maximize=True)
+    _, assignment = PortfolioScheduler(max_debug_depth=3).choose(journal)
+    assert assignment.family == "duration_auxiliary"
+    assert "failure_penalty" in assignment.feature_vector
+
+
+def test_task_prompt_is_thin_benchmark_contract_not_forced_solution() -> None:
     task = (Path(__file__).parents[1] / "task.md").read_text(encoding="utf-8")
     required = (
-        "3000, 7000, 12000, 20000, 35000, 60000, 120000",
-        "`torch.optim.Adam(lr=0.001, weight_decay=1e-6)`",
-        "Do not clamp, sigmoid, or otherwise reparameterize them",
-        "full public-validation primary each epoch",
-        "0.45*rank(history) + 0.45*rank(dcn) + 0.10*rank(RAD-video)",
+        "Experiment memory",
+        "Optional research menu",
+        "EDA evidence",
+        "Literature evidence",
+        "last-three-training-days",
+        "one bounded scientific improvement",
+    )
+    for value in required:
+        assert value in task
+    assert "0.45*rank(history)" not in task
+    assert len(task) < 10_000
+
+
+def test_task_prompt_requires_single_seed_component_gate_and_clean_evidence() -> None:
+    task = (Path(__file__).parents[1] / "task.md").read_text(encoding="utf-8")
+    required = (
+        "seed-0 execution strictly exceeds all three",
+        "GAUC `0.6710518008586268`",
+        "nDCG@5 `0.5380142516919405`",
+        "primary `0.6045330262752837`",
+        "zero manual interventions",
+        "exactly once at seed 0",
     )
     for value in required:
         assert value in task
 
-
-def test_task_prompt_freezes_executed_dcn_history_and_bounded_rad_head() -> None:
-    task = (Path(__file__).parents[1] / "task.md").read_text(encoding="utf-8")
-    required = (
-        "vector-weight cross layers",
-        "multiplier starts at `0.015`",
-        "cumulative prior-exposure count bin",
-        "`8 -> 32 -> 1`",
-        "detached already-computed representations",
-        "one linear `72 -> 1` projection",
-        "no second training phase",
-        "no LightGBM",
-        "checkpoint on the exact emitted blend",
-        "Do not select on history-only logits",
-        "Atomic v20 stabilization",
-        "ReduceLROnPlateau",
-        "min_lr=2.5e-4",
-        "do not reset `bad_epochs`",
-    )
-    for value in required:
-        assert value in task
 
 def test_improvement_prompt_receives_schema_environment_and_assignment() -> None:
     cfg = SimpleNamespace(

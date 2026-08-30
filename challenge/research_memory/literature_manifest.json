@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "mode": "frozen",
+  "notes": [
+    {
+      "citation_id": "lit-15593742ec9f65f6",
+      "title": "Counteracting Duration Bias in Video Recommendation via Counterfactual Watch Time",
+      "authors": [
+        "Haiyuan Zhao",
+        "Guohao Cai",
+        "Jieming Zhu",
+        "Zhenhua Dong",
+        "Jun Xu",
+        "Ji-Rong Wen"
+      ],
+      "year": 2024,
+      "url": "https://arxiv.org/abs/2406.07932",
+      "technique": "Model watch time as right-censored by video duration and learn counterfactual watch-time interest with a censored likelihood.",
+      "data": "Training play time, duration, a full-play censoring indicator, and serving-time backbone features.",
+      "effect": "Targets GAUC and duration-segment stability, with indirect nDCG effects.",
+      "cost": "Medium-high because the custom likelihood adds sensitive distribution parameters.",
+      "risk": "Likelihood instability can consume the trial budget; use only a tiny head after simpler duration targets are exhausted.",
+      "applicability": "The EDA shows a material full-play share, matching the censoring formulation."
+    },
+    {
+      "citation_id": "lit-20c9f4a701b60016",
+      "title": "Deep Interest Network for Click-Through Rate Prediction",
+      "authors": [
+        "Guorui Zhou",
+        "Chengru Song",
+        "Xiaoqiang Zhu",
+        "Ying Fan",
+        "Han Zhu",
+        "Xiao Ma",
+        "Yanghui Yan",
+        "Junqi Jin",
+        "Han Li",
+        "Kun Gai"
+      ],
+      "year": 2018,
+      "url": "https://arxiv.org/abs/1706.06978",
+      "technique": "Use candidate-conditioned local activation over historical behavior embeddings.",
+      "data": "Strictly earlier ordered histories plus candidate and historical item metadata.",
+      "effect": "Targets user-specific GAUC and may lift top-five ranking when recent interests are supported.",
+      "cost": "High unless history length, embedding width, and attention depth are tightly bounded.",
+      "risk": "Earlier CPU implementations timed out or exceeded memory; exact-item histories are sparse.",
+      "applicability": "A tag-focused DIN-lite is more defensible than a full item sequence because prior user-tag support is 77.44%."
+    },
+    {
+      "citation_id": "lit-22020792e6c7fdc3",
+      "title": "DCN V2: Improved Deep and Cross Network and Practical Lessons for Web-scale Learning to Rank Systems",
+      "authors": [
+        "Ruoxi Wang",
+        "Rakesh Shivanna",
+        "Derek Z. Cheng",
+        "Sagar Jain",
+        "Dong Lin",
+        "Lichan Hong",
+        "Ed H. Chi"
+      ],
+      "year": 2021,
+      "url": "https://arxiv.org/abs/2008.13535",
+      "technique": "Learn explicit bounded-degree feature crosses with matrix or low-rank cross layers.",
+      "data": "Embedded categorical fields and normalized numerical context.",
+      "effect": "Targets both GAUC and nDCG through candidate-context interactions missed by FM.",
+      "cost": "Medium for one or two compact low-rank cross layers.",
+      "risk": "Large full-rank or mixture-of-expert variants exceed the CPU and memory envelope.",
+      "applicability": "A compact DCN residual is already strong locally; stabilization has higher value than architectural expansion."
+    },
+    {
+      "citation_id": "lit-22fcd1781e19b1c2",
+      "title": "Uncovering User Interest from Biased and Noised Watch Time in Video Recommendation",
+      "authors": [
+        "Haiyuan Zhao",
+        "Lei Zhang",
+        "Jun Xu",
+        "Guohao Cai",
+        "Zhenhua Dong",
+        "Ji-Rong Wen"
+      ],
+      "year": 2023,
+      "url": "https://arxiv.org/abs/2308.08120",
+      "technique": "D2Co models duration-conditioned watch-time mixtures and smooths correction parameters across nearby duration cohorts.",
+      "data": "Training watch time, duration, and optional engagement feedback for component diagnosis.",
+      "effect": "Targets GAUC and performance consistency across duration segments.",
+      "cost": "Medium if duration is quantized before fitting small mixture models.",
+      "risk": "Per-duration mixture fitting is fragile and more complex than D2Q or the existing RAD-style head.",
+      "applicability": "KuaiRand engagement outcomes can diagnose components, but only a corrected train-derived scalar may enter learning."
+    },
+    {
+      "citation_id": "lit-2a05417cc61430c4",
+      "title": "Field-weighted Factorization Machines for Click-Through Rate Prediction in Display Advertising",
+      "authors": [
+        "Junwei Pan",
+        "Jian Xu",
+        "Alfonso Lobos Ruiz",
+        "Wenliang Zhao",
+        "Shengjun Pan",
+        "Yu Sun",
+        "Quan Lu"
+      ],
+      "year": 2018,
+      "url": "https://arxiv.org/abs/1806.03514",
+      "technique": "Learn one scalar interaction strength per field pair while retaining one embedding per feature.",
+      "data": "Multi-field categorical user, item, context, and metadata features.",
+      "effect": "Targets personalized interaction quality and therefore primarily GAUC, with possible nDCG lift.",
+      "cost": "Low-to-medium parameter and CPU overhead relative to the rich FM backbone.",
+      "risk": "The prior full FwFM branch regressed; restrict any retry to an evidence-backed field-pair subset.",
+      "applicability": "Tag and duration crosses are plausible because user-tag history support is high while exact repeat-item support is low."
+    },
+    {
+      "citation_id": "lit-c2e0e5927c772e3d",
+      "title": "Ensemble Selection from Libraries of Models",
+      "authors": [
+        "Rich Caruana",
+        "Alexandru Niculescu-Mizil",
+        "Geoff Crew",
+        "Alex Ksikes"
+      ],
+      "year": 2004,
+      "url": "https://www.cs.cornell.edu/~caruana/ctp/ct.papers/caruana.icml04.icdm06long.pdf",
+      "technique": "Greedily add diverse models according to held-out metric improvement while limiting selection overfit.",
+      "data": "Leakage-safe out-of-fold predictions from diverse model families.",
+      "effect": "Can balance GAUC and nDCG when component errors are complementary.",
+      "cost": "Low for blending after expensive component predictions already exist.",
+      "risk": "Public-validation weight search overfits; use coarse preregistered weights and an internal chronological holdout.",
+      "applicability": "Restrict to two or three self-generated, decorrelated exits and regenerate them inside the final candidate."
+    },
+    {
+      "citation_id": "lit-c42f9f1d3f630c32",
+      "title": "The LambdaLoss Framework for Ranking Metric Optimization",
+      "authors": [
+        "Xuanhui Wang",
+        "Cheng Li",
+        "Nadav Golbandi",
+        "Michael Bendersky",
+        "Marc Najork"
+      ],
+      "year": 2018,
+      "url": "https://research.google/pubs/the-lambdaloss-framework-for-ranking-metric-optimization/",
+      "technique": "Weight probabilistic pair losses by their effect on a target ranking metric such as nDCG.",
+      "data": "User groups, binary relevance labels, candidate scores, and observed within-user positive-negative pairs.",
+      "effect": "A Lambda@5 term directly targets nDCG@5 while a dominant BCE term preserves GAUC.",
+      "cost": "Medium with capped pairs per user and vectorized batches.",
+      "risk": "Pairwise-only fine-tuning already regressed; keep the ranking loss small and in the same update as BCE.",
+      "applicability": "Use user_id as the query and only observed short-view impressions as negatives."
+    },
+    {
+      "citation_id": "lit-e6f725a5b31ec242",
+      "title": "Deconfounding Duration Bias in Watch-time Prediction for Video Recommendation",
+      "authors": [
+        "Ruohan Zhan",
+        "Changhua Pei",
+        "Qiang Su",
+        "Jianfeng Wen",
+        "Xueliang Wang",
+        "Guanyu Mu",
+        "Dong Zheng",
+        "Peng Jiang"
+      ],
+      "year": 2022,
+      "url": "https://arxiv.org/abs/2206.06003",
+      "technique": "D2Q converts watch time to a train-fitted within-duration-group empirical quantile target.",
+      "data": "Training play time, duration, and ordinary serving-time features.",
+      "effect": "A cleaner duration-relative interest auxiliary is expected to help GAUC and duration-segment stability.",
+      "cost": "Low when quantile labels are cached and predicted by a tiny shared auxiliary head.",
+      "risk": "Published watch-time objectives do not directly guarantee binary long-view GAUC or nDCG gains.",
+      "applicability": "The schema has training play_time_ms and serving-time duration_ms; no validation outcome is required."
+    },
+    {
+      "citation_id": "lit-ee1cf5839169e11f",
+      "title": "LightGCN: Simplifying and Powering Graph Convolution Network for Recommendation",
+      "authors": [
+        "Xiangnan He",
+        "Kuan Deng",
+        "Xiang Wang",
+        "Yan Li",
+        "Yongdong Zhang",
+        "Meng Wang"
+      ],
+      "year": 2020,
+      "url": "https://arxiv.org/abs/2002.02126",
+      "technique": "Propagate and average user-item embeddings over a normalized implicit-feedback graph without feature transforms.",
+      "data": "A train-only user-item positive graph and observed or sampled ranking pairs.",
+      "effect": "Primarily targets warm-user and warm-item GAUC.",
+      "cost": "High under the current CPU envelope even with shallow propagation.",
+      "risk": "Sparse repeat-video support and a prior timeout/weak repair make this a low-priority diversity branch.",
+      "applicability": "Only reconsider as a shallow residual if diagnostics show collaborative signal beyond the strong tag history."
+    }
+  ],
+  "query_cache": {},
+  "notes_sha256": "9fa10ee2264258b5e5befec1b48924e2727cb212962883f18f45bea046f77615",
+  "cache_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "manifest_sha256": "a04bda7f6b6330d760fa7cee3571abddd78303914182ff9d2f5995f326e19344"
+}

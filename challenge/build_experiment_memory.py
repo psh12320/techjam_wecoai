@@ -1,0 +1,162 @@
+"""Build safe, frozen experiment memory from hash-validated AIDE ledgers."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from challenge.techjam_recsys.prompt_context import canonical_sha256  # noqa: E402
+from challenge.techjam_recsys.protocol import (  # noqa: E402
+    ChallengeMetric,
+    ExperimentLedger,
+    TrialRecord,
+)
+
+
+SAFE_CONFIG_KEYS = {
+    "abort_criteria",
+    "eda_observation_ids",
+    "estimated_memory_mb",
+    "estimated_runtime_seconds",
+    "expected_metric_effects",
+    "falsification_condition",
+    "features",
+    "fidelity",
+    "hyperparameters",
+    "internal_validation",
+    "literature_citation_ids",
+    "losses",
+    "model_family",
+    "risks",
+    "scientific_change",
+    "target_metric",
+}
+
+
+def _safe_config(record: TrialRecord) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in (record.config or {}).items()
+        if key in SAFE_CONFIG_KEYS
+    }
+
+
+def _entry(record: TrialRecord) -> dict[str, Any]:
+    metrics = dict(record.metrics) if record.metrics else None
+    component_deltas = None
+    if metrics:
+        component_deltas = ChallengeMetric.from_mapping(metrics).champion_deltas
+    return {
+        "trial_id": record.trial_id,
+        "parent_trial_id": record.parent_trial_id,
+        "node_id": record.node_id,
+        "source_record_sha256": record.record_sha256,
+        "code_sha256": record.code_sha256,
+        "model_family": record.model_family,
+        "assignment_family": record.assignment_family,
+        "status": record.status,
+        "decision": record.decision,
+        "recovery_outcome": record.recovery_outcome,
+        "metrics": metrics,
+        "champion_deltas": component_deltas,
+        "wall_seconds": record.wall_seconds,
+        "candidate_exec_seconds": record.candidate_exec_seconds,
+        "error_type": record.error_type,
+        "configuration": _safe_config(record),
+    }
+
+
+def build_memory(ledger_paths: list[Path], *, max_entries: int = 16) -> dict[str, Any]:
+    records: list[TrialRecord] = []
+    source_hashes: list[str] = []
+    for path in ledger_paths:
+        path = Path(path)
+        loaded = ExperimentLedger(path).read(validate_chain=True)
+        records.extend(loaded)
+        source_hashes.extend(
+            record.record_sha256 for record in loaded if record.record_sha256
+        )
+
+    # Keep the strongest successful evidence plus representative failures. The
+    # sort is deterministic and contains no code, predictions, or artifact paths.
+    def rank(record: TrialRecord) -> tuple[int, float, float]:
+        primary = float((record.metrics or {}).get("primary", float("-inf")))
+        return (1 if record.metrics else 0, primary, record.created_at_unix)
+
+    successes = sorted(
+        (record for record in records if record.metrics), key=rank, reverse=True
+    )
+    failures = sorted(
+        (record for record in records if not record.metrics),
+        key=lambda record: (record.created_at_unix, record.trial_id),
+        reverse=True,
+    )
+    failure_slots = min(6, max_entries // 3)
+    success_slots = max(1, max_entries - failure_slots)
+
+    def diverse(values: list[TrialRecord], limit: int, key) -> list[TrialRecord]:
+        chosen: list[TrialRecord] = []
+        seen: set[Any] = set()
+        for record in values:
+            identity = key(record)
+            if identity in seen:
+                continue
+            chosen.append(record)
+            seen.add(identity)
+            if len(chosen) >= limit:
+                return chosen
+        for record in values:
+            if record not in chosen:
+                chosen.append(record)
+                if len(chosen) >= limit:
+                    break
+        return chosen
+
+    selected = diverse(successes, success_slots, lambda record: record.model_family)
+    selected += diverse(
+        failures,
+        failure_slots,
+        lambda record: (record.model_family, record.error_type),
+    )
+    selected.sort(key=lambda record: (record.created_at_unix, record.trial_id))
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "source": "hash-validated AIDE experiment ledgers",
+        "source_record_hashes": sorted(source_hashes),
+        "entries": [_entry(record) for record in selected],
+    }
+    payload["content_sha256"] = canonical_sha256(payload)
+    return payload
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("ledgers", nargs="+", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--max-entries", type=int, default=16)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    memory = build_memory(args.ledgers, max_entries=args.max_entries)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(memory, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {"output": str(args.output), "content_sha256": memory["content_sha256"]}
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

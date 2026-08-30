@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "source_policy": "train outcomes plus label-free validation features only",
+  "report_sha256": "60d95f085a4c9b30567232f4384b7b6709e4348ae641cb1fb82426379e970f9f",
+  "observations": [
+    {
+      "id": "label_imbalance",
+      "finding": "Training long-view positive rate is 0.3366.",
+      "implication": "Use calibrated pointwise supervision and evaluate ranking-aware refinements rather than accuracy.",
+      "suggested_families": ["rich_fm", "duration_auxiliary", "metric_aligned"]
+    },
+    {
+      "id": "cold_start",
+      "finding": "Validation cold-user row rate is 0.0159; cold-video row rate is 0.0001.",
+      "implication": "Balance ID memorization with metadata and popularity-aware fallback features.",
+      "suggested_families": ["rich_fm", "fwfm", "catboost"]
+    },
+    {
+      "id": "candidate_aware_history_support",
+      "finding": "Prior user-video/author/tag support is 0.0162/0.0338/0.7744.",
+      "implication": "Candidate-aware tag history has enough support for a bounded residual before full DIN.",
+      "suggested_families": ["history_residual", "din_lite"]
+    },
+    {
+      "id": "duration_relative_behavior",
+      "finding": "Training median watch ratio is 0.1026; the share at or above completion is 0.1523.",
+      "implication": "Duration-relative auxiliary targets are testable without serving-time outcomes.",
+      "suggested_families": ["duration_auxiliary"]
+    },
+    {
+      "id": "temporal_drift",
+      "finding": "Train/validation hour total-variation distance is 0.0422.",
+      "implication": "Preserve chronological validation and include compact time context.",
+      "suggested_families": ["rich_fm", "dcn_v2", "history_residual"]
+    }
+  ],
+  "distribution_summary": {
+    "train_rows": 1141112,
+    "validation_rows": 124909,
+    "validation_history_p50": 51.0,
+    "validation_history_p90": 141.0,
+    "validation_no_history_rate": 0.0159316,
+    "validation_candidates_per_user_p50": 4.0,
+    "validation_candidates_per_user_p90": 12.0,
+    "validation_candidates_per_user_max": 74
+  }
+}

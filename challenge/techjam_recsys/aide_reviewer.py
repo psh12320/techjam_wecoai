@@ -15,6 +15,10 @@ from aide.journal import Node
 
 from .metrics import evaluate
 from .protocol import BASELINE_VALID, CHAMPION_VALID
+from .diagnostics import (
+    aggregate_validation_diagnostics,
+    diagnostics_prompt_summary,
+)
 
 
 class KuaiRandPredictionReviewer:
@@ -35,6 +39,37 @@ class KuaiRandPredictionReviewer:
         self.labels = index["long_view"]
         self.artifact_dir = Path(artifact_dir)
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
+        self.diagnostics_dir = self.artifact_dir.parent / "diagnostics"
+        self.diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        input_dir = self.workspace_dir / "input"
+        diagnostic_columns = ["user_id", "video_id", "date", "time_ms", "duration_ms"]
+        self.diagnostic_train = pd.read_csv(
+            input_dir / "train.csv", usecols=diagnostic_columns
+        )
+        self.diagnostic_valid = pd.read_csv(
+            input_dir / "valid.csv", usecols=diagnostic_columns
+        )
+        video = pd.read_csv(
+            input_dir / "video_features_basic_pure.csv",
+            usecols=["video_id", "author_id", "tag"],
+        )
+        video["primary_tag"] = (
+            video["tag"].fillna("UNK").astype(str).str.split(",").str[0]
+        )
+        video = video.drop(columns="tag")
+        users = pd.read_csv(
+            input_dir / "user_features_pure.csv",
+            usecols=["user_id", "user_active_degree"],
+        )
+        for name in ("diagnostic_train", "diagnostic_valid"):
+            frame = getattr(self, name)
+            frame = frame.merge(
+                video, on="video_id", how="left", validate="many_to_one"
+            )
+            frame = frame.merge(users, on="user_id", how="left", validate="many_to_one")
+            setattr(self, name, frame)
+        self.previous_predictions: dict[str, np.ndarray] = {}
+        self.diagnostics_by_node: dict[str, dict[str, object]] = {}
 
     def clear_candidate_output(self) -> None:
         self.prediction_path.unlink(missing_ok=True)
@@ -86,6 +121,38 @@ class KuaiRandPredictionReviewer:
                 self.prediction_path,
                 self.artifact_dir / f"{node.id}.csv",
             )
+            comparison_predictions = {
+                **self.previous_predictions,
+                node.id: scores,
+            }
+            diagnostics = aggregate_validation_diagnostics(
+                self.diagnostic_train,
+                self.diagnostic_valid,
+                self.users,
+                self.labels,
+                comparison_predictions,
+            )
+            diagnostics_path = self.diagnostics_dir / f"{node.id}.json"
+            diagnostics_path.write_text(
+                json.dumps(diagnostics, indent=2, sort_keys=True), encoding="utf-8"
+            )
+            correlations = []
+            for pair, values in diagnostics.get("model_diversity", {}).items():
+                if node.id in pair.split("__"):
+                    correlations.append(
+                        float(values.get("within_user_rank_correlation", 0.0))
+                    )
+            diagnostic_record: dict[str, object] = {
+                "diagnostics_sha256": diagnostics["diagnostics_sha256"],
+                "max_frontier_prediction_correlation": (
+                    max(correlations) if correlations else None
+                ),
+                "prompt_summary": diagnostics_prompt_summary(diagnostics),
+            }
+            self.diagnostics_by_node[node.id] = diagnostic_record
+            self.previous_predictions[node.id] = scores.copy()
+            while len(self.previous_predictions) > 4:
+                self.previous_predictions.pop(next(iter(self.previous_predictions)))
             summary = json.dumps(
                 {
                     "metrics": {
@@ -100,6 +167,11 @@ class KuaiRandPredictionReviewer:
                         champion_deltas[key] > 0
                         for key in ("GAUC", "nDCG@5", "primary")
                     ),
+                    "diagnostics_sha256": diagnostics["diagnostics_sha256"],
+                    "diagnostics_summary": diagnostic_record["prompt_summary"],
+                    "max_frontier_prediction_correlation": diagnostic_record[
+                        "max_frontier_prediction_correlation"
+                    ],
                 },
                 sort_keys=True,
             )

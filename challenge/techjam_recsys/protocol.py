@@ -17,7 +17,6 @@ CHAMPION_VALID = {
     "nDCG@5": 0.5380142516919405,
     "primary": 0.6045330262752837,
 }
-ROBUST_PRIMARY_TARGET = CHAMPION_VALID["primary"] + 0.0005
 MAX_ITERATIONS = 50
 MAX_WALL_SECONDS = 6 * 60 * 60
 CONVERGENCE_EPSILON = 0.002
@@ -147,6 +146,8 @@ class TrialRecord:
     prompt_version: str | None = None
     assignment_family: str | None = None
     seed: int | None = None
+    evaluation_fidelity: str = "unknown"
+    evaluator_sha256: str | None = None
     artifact_ids: list[str] = field(default_factory=list)
     artifact_sha256: dict[str, str] = field(default_factory=dict)
     run_id: str | None = None
@@ -157,6 +158,12 @@ class TrialRecord:
     scheduler_reason: str | None = None
     scheduler_utility: float | None = None
     scheduler_alternatives: list[dict[str, Any]] = field(default_factory=list)
+    scheduler_feature_vector: dict[str, float] = field(default_factory=dict)
+    pareto_frontier_member: bool | None = None
+    expected_api_cost_usd: float | None = None
+    actual_api_cost_usd: float | None = None
+    internal_validation_sha256: str | None = None
+    diagnostics_sha256: str | None = None
     decision: str | None = None
     recovery_outcome: str | None = None
     error_type: str | None = None

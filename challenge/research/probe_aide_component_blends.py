@@ -28,10 +28,7 @@ from challenge.techjam_recsys.aide_portfolio import (  # noqa: E402
     validate_candidate_source,
 )
 from challenge.techjam_recsys.metrics import rank_normalize_within_user  # noqa: E402
-from challenge.techjam_recsys.protocol import (  # noqa: E402
-    CHAMPION_VALID,
-    ROBUST_PRIMARY_TARGET,
-)
+from challenge.techjam_recsys.protocol import CHAMPION_VALID  # noqa: E402
 
 
 INFERENCE_MARKER = """    final_logits, dcn_logits, rad_scores = predict_all(
@@ -200,18 +197,17 @@ def main() -> int:
                     "all_seeds_beat_champion": all(
                         beats_champion(metric) for metric in metrics
                     ),
-                    "robust": (
-                        all(beats_champion(metric) for metric in metrics)
-                        and means["GAUC"] > CHAMPION_VALID["GAUC"]
-                        and means["nDCG@5"] > CHAMPION_VALID["nDCG@5"]
-                        and means["primary"] >= ROBUST_PRIMARY_TARGET
+                    # Historical diagnostic only. Autonomous acceptance is one
+                    # deterministic seed-0 execution, never this aggregate.
+                    "all_seed_diagnostic_pass": all(
+                        beats_champion(metric) for metric in metrics
                     ),
                 }
             )
 
     candidates.sort(
         key=lambda item: (
-            item["robust"],
+            item["all_seed_diagnostic_pass"],
             item["all_seeds_beat_champion"],
             item["means"]["primary"],
         ),
@@ -222,10 +218,12 @@ def main() -> int:
         "generated_node_id": args.node_id,
         "instrumented_source_sha256": source_sha256,
         "champion": CHAMPION_VALID,
-        "robust_primary_target": ROBUST_PRIMARY_TARGET,
+        "acceptance_policy": "diagnostic_only; not used by autonomous seed-0 gate",
         "exit_metrics": exits,
         "top_blends": candidates[:20],
-        "robust_blend_count": sum(item["robust"] for item in candidates),
+        "all_seed_diagnostic_pass_count": sum(
+            item["all_seed_diagnostic_pass"] for item in candidates
+        ),
     }
     report_path = output_dir / "blend_grid.json"
     report_path.write_text(

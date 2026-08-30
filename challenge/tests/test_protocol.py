@@ -9,9 +9,11 @@ import pytest
 import aide.backend as backend
 from challenge.run_aide_research import (
     bounded_candidate_exec_seconds,
+    candidate_metrics_pass,
     campaign_final_designation,
-    confirmation_seed_passes,
     estimate_uncached_cost,
+    parse_args,
+    single_run_candidate_evidence,
 )
 from challenge.techjam_recsys.metrics import evaluate, rank_normalize_within_user
 from challenge.techjam_recsys.protocol import (
@@ -177,34 +179,106 @@ def test_champion_gate_requires_both_component_improvements() -> None:
     assert tradeoff.beats_champion is False
 
 
-def test_confirmation_seed_is_evaluated_against_all_champion_components() -> None:
+def test_single_run_gate_is_evaluated_against_all_champion_components() -> None:
     winner = {
         "GAUC": CHAMPION_VALID["GAUC"] + 0.0001,
         "nDCG@5": CHAMPION_VALID["nDCG@5"] + 0.0001,
         "primary": CHAMPION_VALID["primary"] + 0.0001,
     }
-    ndcg_regression = dict(
-        winner, **{"nDCG@5": CHAMPION_VALID["nDCG@5"] - 0.0001}
-    )
-    assert confirmation_seed_passes(winner) is True
-    assert confirmation_seed_passes(ndcg_regression) is False
-    assert confirmation_seed_passes(None) is False
+    ndcg_regression = dict(winner, **{"nDCG@5": CHAMPION_VALID["nDCG@5"] - 0.0001})
+    assert candidate_metrics_pass(winner) is True
+    assert candidate_metrics_pass(ndcg_regression) is False
+    assert candidate_metrics_pass(None) is False
 
 
-def test_final_designation_requires_robust_confirmation_and_clean_evidence() -> None:
+def qualifying_single_run_record(**overrides) -> TrialRecord:
+    digest = "a" * 64
+    values = {
+        "iteration": 1,
+        "hypothesis": "one deterministic full-data candidate",
+        "model_family": "rich_fm",
+        "status": "success",
+        "config": {"card_complete": True},
+        "metrics": {
+            "GAUC": CHAMPION_VALID["GAUC"] + 0.0001,
+            "nDCG@5": CHAMPION_VALID["nDCG@5"] + 0.0001,
+            "primary": CHAMPION_VALID["primary"] + 0.0001,
+        },
+        "source": "aide_generated",
+        "node_id": "winning-node",
+        "seed": 0,
+        "evaluation_fidelity": "full",
+        "exit_status": "success",
+        "record_sha256": digest,
+        "code_sha256": digest,
+        "prompt_sha256": digest,
+        "campaign_manifest_sha256": digest,
+        "source_sha256": digest,
+        "input_sha256": digest,
+        "dependency_sha256": digest,
+        "evaluator_sha256": digest,
+        "diagnostics_sha256": digest,
+        "internal_validation_sha256": digest,
+        "assignment_compliant": True,
+        "artifact_ids": [
+            "predictions/winning-node.npy",
+            "diagnostics/winning-node.json",
+        ],
+        "artifact_sha256": {
+            "predictions/winning-node.npy": digest,
+            "diagnostics/winning-node.json": digest,
+        },
+    }
+    values.update(overrides)
+    return TrialRecord(**values)
+
+
+def test_single_run_evidence_requires_seed_zero_full_fidelity_and_hashes() -> None:
+    assert single_run_candidate_evidence(qualifying_single_run_record())["valid"]
+    assert not single_run_candidate_evidence(qualifying_single_run_record(seed=1))[
+        "valid"
+    ]
+    assert not single_run_candidate_evidence(
+        qualifying_single_run_record(evaluation_fidelity="screen")
+    )["valid"]
+    assert not single_run_candidate_evidence(
+        qualifying_single_run_record(evaluator_sha256=None)
+    )["valid"]
+    assert not single_run_candidate_evidence(
+        qualifying_single_run_record(artifact_sha256={})
+    )["valid"]
+
+
+def test_final_designation_requires_single_run_and_clean_evidence() -> None:
     evidence = {"valid": True}
-    assert campaign_final_designation(
-        "clean", {"accepted": False}, 0, evidence
-    ) == ("rejected", False, False)
-    assert campaign_final_designation(
-        "development", {"accepted": True}, 0, evidence
-    ) == ("robust_development_candidate", True, False)
-    assert campaign_final_designation(
-        "clean", {"accepted": True}, 0, evidence
-    ) == ("competition_ready", True, True)
-    assert campaign_final_designation(
-        "clean", {"accepted": True}, 1, evidence
-    ) == ("robust_development_candidate", True, False)
+    candidate = single_run_candidate_evidence(qualifying_single_run_record())
+    assert campaign_final_designation("clean", {"valid": False}, 0, evidence) == (
+        "rejected",
+        False,
+        False,
+    )
+    assert campaign_final_designation("development", candidate, 0, evidence) == (
+        "single_run_development_candidate",
+        True,
+        False,
+    )
+    assert campaign_final_designation("clean", candidate, 0, evidence) == (
+        "competition_ready",
+        True,
+        True,
+    )
+    assert campaign_final_designation("clean", candidate, 1, evidence) == (
+        "single_run_development_candidate",
+        True,
+        False,
+    )
+
+
+def test_confirmation_cli_is_removed_and_49_generated_steps_parse() -> None:
+    assert parse_args(["--steps", "49"]).steps == 49
+    assert parse_args(["--baseline-only"]).baseline_only is True
+    with pytest.raises(SystemExit):
+        parse_args(["--confirm-on-breakthrough"])
 
 
 def test_manual_interventions_are_derived_from_event_log(tmp_path: Path) -> None:

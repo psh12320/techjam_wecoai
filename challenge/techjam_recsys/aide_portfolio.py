@@ -6,12 +6,12 @@ import ast
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from aide.journal import Journal, Node
 
-PROMPT_VERSION = "kuairand-aide-champion-v20"
+PROMPT_VERSION = "kuairand-aide-autonomy-v21"
 CHAMPION_VALID = {
     "GAUC": 0.6710518008586268,
     "nDCG@5": 0.5380142516919405,
@@ -32,19 +32,18 @@ PORTFOLIO_ORDER = (
     "catboost",
 )
 
-FAMILY_PRIORS = {
-    "dcn_v2": 1.10,
-    "history_residual": 1.05,
-    "duration_auxiliary": 1.04,
-    "ensemble": 0.20,
-    # Two legal AIDE RankNet trials regressed both components.  Retain this
-    # family for later exploration but prefer the reproducibly positive
-    # DCN -> narrow-history -> shared multi-exit sequence.
-    "metric_aligned": 0.20,
-    "catboost": 0.25,
-    "lightgcn": 0.65,
-    "din_lite": 0.20,
-    "fwfm": 0.50,
+FAMILY_EVIDENCE_PRIORS = {
+    # Small, frozen evidence terms from the audited ledgers, EDA, and cited
+    # literature. They are one scheduler feature, not a forced family order.
+    "history_residual": 0.25,
+    "duration_auxiliary": 0.22,
+    "dcn_v2": 0.15,
+    "metric_aligned": 0.10,
+    "ensemble": 0.08,
+    "fwfm": 0.02,
+    "din_lite": 0.00,
+    "lightgcn": -0.10,
+    "catboost": -0.12,
 }
 
 FAMILY_ALIASES = {
@@ -69,6 +68,28 @@ FAMILY_ALIASES = {
     "catboost_ranker": "catboost",
 }
 
+REQUIRED_CANDIDATE_FIELDS = (
+    "parent_node_id",
+    "parent_code_sha256",
+    "model_family",
+    "eda_observation_ids",
+    "literature_citation_ids",
+    "scientific_change",
+    "hypothesis",
+    "features",
+    "losses",
+    "hyperparameters",
+    "target_metric",
+    "expected_metric_effects",
+    "estimated_runtime_seconds",
+    "estimated_memory_mb",
+    "risks",
+    "abort_criteria",
+    "falsification_condition",
+    "fidelity",
+    "internal_validation",
+)
+
 _SPEC_RE = re.compile(
     r"<candidate_spec>\s*(\{.*?\})\s*</candidate_spec>",
     flags=re.DOTALL | re.IGNORECASE,
@@ -82,6 +103,8 @@ class PortfolioAssignment:
     reason: str
     utility: float = 0.0
     alternatives: tuple[tuple[str, float], ...] = ()
+    parent_node_id: str | None = None
+    feature_vector: dict[str, float] = field(default_factory=dict)
 
     def as_prompt(self) -> dict[str, str]:
         return {
@@ -92,7 +115,70 @@ class PortfolioAssignment:
             "Alternatives considered": ", ".join(
                 f"{family}={utility:.4f}" for family, utility in self.alternatives
             ),
+            "Selected parent node": self.parent_node_id or "organizer root/new draft",
+            "Scheduler evidence": json.dumps(self.feature_vector, sort_keys=True),
         }
+
+
+@dataclass
+class FamilyStats:
+    family: str
+    attempts: int = 0
+    successes: int = 0
+    failures: int = 0
+    timeouts: int = 0
+    total_exec_seconds: float = 0.0
+    total_api_cost_usd: float = 0.0
+    best_primary: float | None = None
+    best_gauc: float | None = None
+    best_ndcg5: float | None = None
+    max_prediction_correlation: float | None = None
+    unique_scientific_changes: int = 0
+    missing_internal_validation: int = 0
+
+
+def node_metrics(node: Node) -> dict[str, float] | None:
+    """Read trusted component metrics embedded by the deterministic reviewer."""
+
+    try:
+        payload = json.loads(node.analysis or "")
+        metrics = payload.get("metrics")
+        if not isinstance(metrics, dict):
+            return None
+        return {
+            "GAUC": float(metrics["GAUC"]),
+            "nDCG@5": float(metrics["nDCG@5"]),
+            "primary": float(metrics["primary"]),
+        }
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def pareto_frontier(nodes: list[Node]) -> list[Node]:
+    """Return nondominated candidates over GAUC, nDCG@5, and primary."""
+
+    valid = [(node, node_metrics(node)) for node in nodes]
+    valid = [(node, metrics) for node, metrics in valid if metrics is not None]
+    frontier: list[Node] = []
+    for node, metrics in valid:
+        dominated = False
+        for other, other_metrics in valid:
+            if other is node:
+                continue
+            at_least = all(
+                other_metrics[key] >= metrics[key]
+                for key in ("GAUC", "nDCG@5", "primary")
+            )
+            strictly = any(
+                other_metrics[key] > metrics[key]
+                for key in ("GAUC", "nDCG@5", "primary")
+            )
+            if at_least and strictly:
+                dominated = True
+                break
+        if not dominated:
+            frontier.append(node)
+    return sorted(frontier, key=lambda value: value.id)
 
 
 def normalize_family(value: Any, fallback: str = "research_wildcard") -> str:
@@ -168,9 +254,15 @@ def parse_candidate_spec(
         parsed.get("model_family"),
         infer_family(normalized_plan, fallback_family),
     )
-    features = parsed.get("features", [])
-    if not isinstance(features, list):
-        features = [str(features)]
+
+    def string_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            value = [value]
+        return [str(item) for item in value]
+
+    features = string_list(parsed.get("features"))
     losses = parsed.get("losses", {})
     if isinstance(losses, list):
         losses = {str(name): None for name in losses}
@@ -179,9 +271,7 @@ def parse_candidate_spec(
     hyperparameters = parsed.get("hyperparameters", {})
     if not isinstance(hyperparameters, dict):
         hyperparameters = {"description": str(hyperparameters)}
-    risks = parsed.get("risks", [])
-    if not isinstance(risks, list):
-        risks = [str(risks)]
+    risks = string_list(parsed.get("risks"))
     expected = parsed.get("expected_metric_effects", {})
     if not isinstance(expected, dict):
         expected = {"description": str(expected)}
@@ -189,20 +279,117 @@ def parse_candidate_spec(
         runtime = int(parsed.get("estimated_runtime_seconds", 900))
     except (TypeError, ValueError):
         runtime = 900
+    try:
+        memory_mb = int(parsed.get("estimated_memory_mb", 3072))
+    except (TypeError, ValueError):
+        memory_mb = 3072
+
+    missing_fields = [
+        field for field in REQUIRED_CANDIDATE_FIELDS if field not in parsed
+    ]
+    validation_errors = ([parse_error] if parse_error is not None else []) + [
+        f"candidate_spec missing required field: {field}" for field in missing_fields
+    ]
 
     return {
+        "parent_node_id": str(parsed.get("parent_node_id") or ""),
+        "parent_code_sha256": str(parsed.get("parent_code_sha256") or ""),
         "model_family": family,
         "declared_model_family": str(parsed.get("model_family") or family),
-        "features": [str(value) for value in features],
+        "eda_observation_ids": string_list(parsed.get("eda_observation_ids")),
+        "literature_citation_ids": string_list(parsed.get("literature_citation_ids")),
+        "scientific_change": str(parsed.get("scientific_change") or ""),
+        "hypothesis": str(parsed.get("hypothesis") or ""),
+        "features": features,
         "losses": losses,
         "hyperparameters": hyperparameters,
+        "target_metric": str(parsed.get("target_metric") or ""),
         "estimated_runtime_seconds": max(1, runtime),
-        "risks": [str(value) for value in risks],
+        "estimated_memory_mb": max(1, memory_mb),
+        "risks": risks,
+        "abort_criteria": string_list(parsed.get("abort_criteria")),
+        "falsification_condition": str(parsed.get("falsification_condition") or ""),
+        "fidelity": str(parsed.get("fidelity") or ""),
+        "internal_validation": (
+            parsed.get("internal_validation")
+            if isinstance(parsed.get("internal_validation"), dict)
+            else {}
+        ),
         "expected_metric_effects": expected,
         "structured": parse_error is None,
         "parse_error": parse_error,
+        "card_complete": not validation_errors,
+        "validation_errors": validation_errors,
         "assignment_family": normalize_family(fallback_family),
     }
+
+
+def validate_candidate_spec(
+    spec: dict[str, Any],
+    *,
+    expected_parent_node_id: str | None = None,
+    expected_parent_code_sha256: str | None = None,
+    allowed_eda_observation_ids: set[str] | None = None,
+    allowed_literature_citation_ids: set[str] | None = None,
+) -> list[str]:
+    """Strictly validate a candidate card before spending candidate compute."""
+
+    errors = list(spec.get("validation_errors") or [])
+    nonempty_text = (
+        "model_family",
+        "scientific_change",
+        "hypothesis",
+        "target_metric",
+        "falsification_condition",
+        "fidelity",
+    )
+    for field in nonempty_text:
+        if not str(spec.get(field) or "").strip():
+            errors.append(f"candidate_spec field must be non-empty: {field}")
+    for field in (
+        "features",
+        "losses",
+        "expected_metric_effects",
+        "risks",
+        "abort_criteria",
+        "internal_validation",
+    ):
+        if not spec.get(field):
+            errors.append(f"candidate_spec field must be non-empty: {field}")
+    effects = spec.get("expected_metric_effects") or {}
+    for metric in ("GAUC", "nDCG@5", "primary"):
+        if metric not in effects:
+            errors.append(f"expected_metric_effects missing {metric}")
+    if int(spec.get("estimated_runtime_seconds") or 0) > 900:
+        errors.append("estimated_runtime_seconds exceeds the 900-second trial limit")
+    if int(spec.get("estimated_memory_mb") or 0) > 3072:
+        errors.append("estimated_memory_mb exceeds the 3-GB trial limit")
+    if spec.get("fidelity") not in {"screen", "full"}:
+        errors.append("fidelity must be 'screen' or 'full'")
+    if (
+        expected_parent_node_id is not None
+        and spec.get("parent_node_id") != expected_parent_node_id
+    ):
+        errors.append("parent_node_id does not match the selected lineage parent")
+    if (
+        expected_parent_code_sha256 is not None
+        and spec.get("parent_code_sha256") != expected_parent_code_sha256
+    ):
+        errors.append("parent_code_sha256 does not match the selected lineage parent")
+    if allowed_eda_observation_ids is not None:
+        unknown = sorted(
+            set(spec.get("eda_observation_ids") or []) - allowed_eda_observation_ids
+        )
+        if unknown:
+            errors.append("unknown EDA observation IDs: " + ", ".join(unknown))
+    if allowed_literature_citation_ids is not None:
+        unknown = sorted(
+            set(spec.get("literature_citation_ids") or [])
+            - allowed_literature_citation_ids
+        )
+        if unknown:
+            errors.append("unknown literature citation IDs: " + ", ".join(unknown))
+    return sorted(set(errors))
 
 
 def candidate_code_sha256(code: str) -> str:
@@ -317,10 +504,16 @@ def validate_candidate_source(code: str) -> list[str]:
 
 
 class PortfolioScheduler:
-    """Deterministic family coverage with bounded autonomous repair."""
+    """Component-aware Pareto scheduling with bounded autonomous repair."""
 
     def __init__(self, max_debug_depth: int = 3):
         self.max_debug_depth = max_debug_depth
+        self._observations: list[tuple[Any, dict[str, Any]]] = []
+
+    def observe(self, record: Any, diagnostics: dict[str, Any] | None = None) -> None:
+        """Persist trusted outcome/cost evidence for later scheduling decisions."""
+
+        self._observations.append((record, dict(diagnostics or {})))
 
     @staticmethod
     def family(node: Node) -> str:
@@ -333,6 +526,103 @@ class PortfolioScheduler:
         return (
             "official_fm_seed" if node.parent is None else infer_family(node.plan or "")
         )
+
+    def _family_stats(self, journal: Journal) -> dict[str, FamilyStats]:
+        stats = {family: FamilyStats(family=family) for family in PORTFOLIO_ORDER}
+        changes: dict[str, set[str]] = {family: set() for family in PORTFOLIO_ORDER}
+        seen_nodes: set[str] = set()
+        for node in journal.nodes:
+            family = self.family(node)
+            if family not in stats or family == "official_fm_seed":
+                continue
+            seen_nodes.add(node.id)
+            item = stats[family]
+            item.attempts += 1
+            spec = node.candidate_spec or {}
+            change = str(spec.get("scientific_change") or "").strip().lower()
+            if change:
+                changes[family].add(change)
+            if not spec.get("internal_validation"):
+                item.missing_internal_validation += 1
+            metrics = node_metrics(node)
+            if metrics is None or node.is_buggy:
+                item.failures += 1
+                if node.exc_type == "TimeoutError":
+                    item.timeouts += 1
+            else:
+                item.successes += 1
+                item.best_primary = max(
+                    item.best_primary or float("-inf"), metrics["primary"]
+                )
+                item.best_gauc = max(item.best_gauc or float("-inf"), metrics["GAUC"])
+                item.best_ndcg5 = max(
+                    item.best_ndcg5 or float("-inf"), metrics["nDCG@5"]
+                )
+            item.total_exec_seconds += float(node.exec_time or 0.0)
+
+        for record, diagnostics in self._observations:
+            family = normalize_family(getattr(record, "model_family", None))
+            if family not in stats:
+                continue
+            node_id = getattr(record, "node_id", None)
+            item = stats[family]
+            if node_id not in seen_nodes:
+                item.attempts += 1
+                metrics = getattr(record, "metrics", None)
+                if metrics:
+                    item.successes += 1
+                    item.best_primary = max(
+                        item.best_primary or float("-inf"), float(metrics["primary"])
+                    )
+                    item.best_gauc = max(
+                        item.best_gauc or float("-inf"), float(metrics["GAUC"])
+                    )
+                    item.best_ndcg5 = max(
+                        item.best_ndcg5 or float("-inf"), float(metrics["nDCG@5"])
+                    )
+                else:
+                    item.failures += 1
+                    if getattr(record, "error_type", None) == "TimeoutError":
+                        item.timeouts += 1
+                item.total_exec_seconds += float(
+                    getattr(record, "candidate_exec_seconds", None) or 0.0
+                )
+            item.total_api_cost_usd += float(
+                getattr(record, "actual_api_cost_usd", None)
+                or diagnostics.get("api_cost_usd", 0.0)
+            )
+            correlation = diagnostics.get("max_frontier_prediction_correlation")
+            if correlation is not None:
+                item.max_prediction_correlation = max(
+                    item.max_prediction_correlation or float("-inf"),
+                    float(correlation),
+                )
+        for family, values in changes.items():
+            stats[family].unique_scientific_changes = len(values)
+        return stats
+
+    @staticmethod
+    def _compatible_parent(
+        family: str, frontier: list[Node], fallback: Node
+    ) -> tuple[Node, float]:
+        preferred = {
+            "history_residual": {"rich_fm", "dcn_v2"},
+            "duration_auxiliary": {"history_residual", "dcn_v2", "rich_fm"},
+            "metric_aligned": {"duration_auxiliary", "history_residual", "dcn_v2"},
+            "din_lite": {"history_residual", "rich_fm"},
+            "ensemble": {"duration_auxiliary", "history_residual", "dcn_v2"},
+            "dcn_v2": {"rich_fm"},
+            "fwfm": {"rich_fm"},
+            "lightgcn": {"rich_fm"},
+            "catboost": {"rich_fm"},
+        }.get(family, set())
+        candidates = [
+            node for node in frontier if PortfolioScheduler.family(node) in preferred
+        ]
+        if not candidates:
+            return fallback, 0.0
+        parent = max(candidates, key=lambda node: (node_metrics(node) or {})["primary"])
+        return parent, 0.20
 
     def choose(self, journal: Journal) -> tuple[Node | None, PortfolioAssignment]:
         debuggable = [
@@ -365,14 +655,13 @@ class PortfolioScheduler:
             )
 
         best = journal.get_best_node()
-        attempts = {family: 0 for family in PORTFOLIO_ORDER}
+        assert best is not None
+        stats = self._family_stats(journal)
         successes: dict[str, list[Node]] = {family: [] for family in PORTFOLIO_ORDER}
-        for node in journal.nodes:
+        for node in journal.good_nodes:
             family = self.family(node)
-            if family in attempts:
-                attempts[family] += 1
-                if not node.is_buggy and node.metric is not None:
-                    successes[family].append(node)
+            if family in successes and node_metrics(node) is not None:
+                successes[family].append(node)
 
         rich_reproduced = any(
             node.metric is not None
@@ -380,7 +669,7 @@ class PortfolioScheduler:
             and float(node.metric.value) >= RICH_FM_MILESTONE_PRIMARY
             for node in successes["rich_fm"]
         )
-        if not rich_reproduced and attempts["rich_fm"] < 2:
+        if not rich_reproduced and stats["rich_fm"].attempts < 2:
             return best, PortfolioAssignment(
                 family="rich_fm",
                 action="improve",
@@ -390,55 +679,107 @@ class PortfolioScheduler:
                 ),
                 utility=2.0,
                 alternatives=(("rich_fm", 2.0),),
+                parent_node_id=best.id,
+                feature_vector={"rich_milestone_missing": 1.0},
             )
 
-        best_primary = float(best.metric.value) if best and best.metric else 0.0
-        utilities: list[tuple[str, float]] = []
+        best_metrics = node_metrics(best) or {
+            "GAUC": CHAMPION_VALID["GAUC"],
+            "nDCG@5": CHAMPION_VALID["nDCG@5"],
+            "primary": float(best.metric.value) if best.metric else 0.0,
+        }
+        frontier = pareto_frontier(journal.good_nodes) or [best]
+        options: list[tuple[str, float, Node, dict[str, float]]] = []
         for family in PORTFOLIO_ORDER[1:]:
-            prior = FAMILY_PRIORS.get(family, 0.0)
-            exploration = 0.50 if attempts[family] == 0 else 0.0
-            family_best = max(
-                (
-                    float(node.metric.value)
-                    for node in successes[family]
-                    if node.metric is not None and not node.metric.is_worst
-                ),
-                default=None,
-            )
-            evidence = 0.0
-            if family_best is not None:
-                evidence = max(-0.5, min(0.5, (family_best - best_primary) * 250.0))
-            failure_penalty = 0.15 * max(0, attempts[family] - len(successes[family]))
-            repeat_penalty = 0.10 * attempts[family]
-            utilities.append(
-                (
-                    family,
-                    prior + exploration + evidence - failure_penalty - repeat_penalty,
+            item = stats[family]
+            exploration = 0.75 if item.attempts == 0 else 0.0
+            primary_evidence = (
+                0.0
+                if item.best_primary is None
+                else max(
+                    -0.6,
+                    min(0.6, (item.best_primary - best_metrics["primary"]) * 250.0),
                 )
             )
-        utilities.sort(key=lambda item: (-item[1], PORTFOLIO_ORDER.index(item[0])))
-        family, utility = utilities[0]
-        preferred_parent_family = {
-            "dcn_v2": "rich_fm",
-            "history_residual": "dcn_v2",
-            "duration_auxiliary": "history_residual",
-        }.get(family)
-        parent = best
-        if preferred_parent_family and successes[preferred_parent_family]:
-            parent = max(
-                successes[preferred_parent_family],
-                key=lambda node: float(node.metric.value),
+            weak_component = min(
+                best_metrics["GAUC"] - CHAMPION_VALID["GAUC"],
+                best_metrics["nDCG@5"] - CHAMPION_VALID["nDCG@5"],
             )
+            weak_gain = 0.0
+            if item.best_gauc is not None and item.best_ndcg5 is not None:
+                weak_gain = max(
+                    -0.5,
+                    min(
+                        0.5,
+                        (
+                            min(
+                                item.best_gauc - CHAMPION_VALID["GAUC"],
+                                item.best_ndcg5 - CHAMPION_VALID["nDCG@5"],
+                            )
+                            - weak_component
+                        )
+                        * 250.0,
+                    ),
+                )
+            floor_preservation = 0.0
+            if item.best_gauc is not None and item.best_ndcg5 is not None:
+                floor_preservation = (
+                    0.20
+                    if (
+                        item.best_gauc > CHAMPION_VALID["GAUC"]
+                        and item.best_ndcg5 > CHAMPION_VALID["nDCG@5"]
+                    )
+                    else -0.05
+                )
+            average_runtime = item.total_exec_seconds / max(1, item.attempts)
+            runtime_penalty = min(0.4, average_runtime / 900.0 * 0.4)
+            failure_penalty = 0.20 * item.failures + 0.35 * item.timeouts
+            repeat_penalty = 0.08 * item.attempts
+            duplicate_penalty = 0.15 * max(
+                0, item.attempts - item.unique_scientific_changes
+            )
+            public_tuning_penalty = 0.05 * item.missing_internal_validation
+            api_cost_penalty = min(0.25, item.total_api_cost_usd * 0.10)
+            diversity_bonus = (
+                0.0
+                if item.max_prediction_correlation is None
+                else max(
+                    -0.1, min(0.25, (1.0 - item.max_prediction_correlation) * 0.25)
+                )
+            )
+            parent, compatibility_bonus = self._compatible_parent(
+                family, frontier, best
+            )
+            vector = {
+                "frozen_evidence_prior": FAMILY_EVIDENCE_PRIORS.get(family, 0.0),
+                "exploration": exploration,
+                "primary_evidence": primary_evidence,
+                "weak_component_gain": weak_gain,
+                "floor_preservation": floor_preservation,
+                "diversity": diversity_bonus,
+                "parent_compatibility": compatibility_bonus,
+                "runtime_penalty": -runtime_penalty,
+                "failure_penalty": -failure_penalty,
+                "repeat_penalty": -repeat_penalty,
+                "near_duplicate_penalty": -duplicate_penalty,
+                "public_tuning_penalty": -public_tuning_penalty,
+                "api_cost_penalty": -api_cost_penalty,
+            }
+            utility = sum(vector.values())
+            options.append((family, utility, parent, vector))
+        options.sort(key=lambda item: (-item[1], PORTFOLIO_ORDER.index(item[0])))
+        family, utility, parent, vector = options[0]
         return parent, PortfolioAssignment(
             family=family,
-            action="improve" if attempts[family] == 0 else "refine",
+            action="improve" if stats[family].attempts == 0 else "refine",
             reason=(
-                "Portfolio utility selected this family from the recorded alternatives "
-                "using expected signal, unexplored-family bonus, observed metric effect, "
-                "implementation failures, and repeat cost. Use the required lineage parent "
-                "when its dependency exists; otherwise preserve the best valid parent. "
-                "Make one attributable change."
+                "The Pareto scheduler selected this family-parent pair using both metric "
+                "components, floor preservation, exploration, prediction diversity, "
+                "runtime/API cost, failure history, and lineage compatibility. Make one "
+                "attributable change and preserve the selected parent's working structure."
             ),
             utility=utility,
-            alternatives=tuple(utilities[:5]),
+            alternatives=tuple((item[0], item[1]) for item in options[:5]),
+            parent_node_id=parent.id,
+            feature_vector=vector,
         )
