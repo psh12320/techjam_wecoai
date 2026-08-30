@@ -357,6 +357,10 @@ class Agent:
             ],
         }
         prompt["Instructions"] |= self._prompt_impl_guideline
+        prompt["Instructions"] |= self._prompt_environment
+
+        if self.acfg.data_preview:
+            prompt["Data Overview"] = self.data_preview
 
         plan, code = self.plan_and_code_query(prompt)
         return Node(
@@ -374,6 +378,7 @@ class Agent:
                 " followed by a single markdown code block which implements the bugfix/solution."
             ),
             "Task description": self.task_desc,
+            "Memory": self.journal.generate_summary(),
             "Previous (buggy) implementation": wrap_code(parent_node.code),
             "Execution output": wrap_code(parent_node.term_out, lang=""),
             "Instructions": {},
@@ -386,6 +391,7 @@ class Agent:
             ],
         }
         prompt["Instructions"] |= self._prompt_impl_guideline
+        prompt["Instructions"] |= self._prompt_environment
 
         if self.acfg.data_preview:
             prompt["Data Overview"] = self.data_preview

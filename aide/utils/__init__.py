@@ -27,6 +27,8 @@ def copytree(src: Path, dst: Path, use_symlinks=True):
         return
 
     for f in src.iterdir():
+        if f.name == "__pycache__" or f.name == ".DS_Store" or f.suffix == ".pyc":
+            continue
         dest_f = dst / f.name
         assert not dest_f.exists(), dest_f
         if use_symlinks:

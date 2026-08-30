@@ -138,26 +138,42 @@ LOG_DTYPES = {
 }
 
 
-def _read_log_files(data_dir: Path, columns: list[str]) -> pd.DataFrame:
+def _read_log_file(
+    path: Path,
+    columns: list[str],
+    *,
+    min_date: int | None = None,
+    max_date: int | None = None,
+) -> pd.DataFrame:
+    """Read selected dates without materializing outcomes for skipped rows."""
+
     dtype = {column: LOG_DTYPES[column] for column in columns}
-    first = pd.read_csv(
-        data_dir / "log_standard_4_08_to_4_21_pure.csv",
+    if min_date is None and max_date is None:
+        return pd.read_csv(path, usecols=columns, dtype=dtype)
+
+    dates = pd.read_csv(path, usecols=["date"], dtype={"date": "int32"})["date"]
+    keep = np.ones(len(dates), dtype=bool)
+    if min_date is not None:
+        keep &= dates.to_numpy() >= min_date
+    if max_date is not None:
+        keep &= dates.to_numpy() <= max_date
+    keep_file_lines = set((np.flatnonzero(keep) + 1).tolist())
+    return pd.read_csv(
+        path,
         usecols=columns,
         dtype=dtype,
+        skiprows=lambda line: line > 0 and line not in keep_file_lines,
     )
-    second = pd.read_csv(
-        data_dir / "log_standard_4_22_to_5_08_pure.csv",
-        usecols=columns,
-        dtype=dtype,
-    )
-    return pd.concat([first, second], ignore_index=True)
 
 
 def _read_logs(data_dir: Path) -> pd.DataFrame:
-    logs = _read_log_files(data_dir, LOG_COLUMNS)
-    # Hard privacy boundary: dates after the public validation period are
-    # discarded immediately and cannot enter feature engineering or metrics.
-    logs = logs.loc[logs["date"] <= VALID_END].copy()
+    first = _read_log_file(data_dir / "log_standard_4_08_to_4_21_pure.csv", LOG_COLUMNS)
+    second = _read_log_file(
+        data_dir / "log_standard_4_22_to_5_08_pure.csv",
+        LOG_COLUMNS,
+        max_date=VALID_END,
+    )
+    logs = pd.concat([first, second], ignore_index=True)
     if int(logs["date"].max()) > VALID_END:
         raise RuntimeError("Held-out test dates crossed the development boundary")
     return logs
@@ -294,14 +310,19 @@ def load_submission_splits(data_dir: Path) -> SubmissionSplits:
     """Load final-fit rows and hidden-test context without reading test outcomes."""
 
     data_dir = Path(data_dir)
-    labeled = _read_log_files(data_dir, LOG_COLUMNS)
-    train = labeled.loc[labeled["date"] <= FINAL_TRAIN_END].copy()
-    del labeled
-    context = _read_log_files(data_dir, CONTEXT_COLUMNS)
-    score = context.loc[
-        (context["date"] >= TEST_START) & (context["date"] <= TEST_END)
-    ].copy()
-    del context
+    first = _read_log_file(data_dir / "log_standard_4_08_to_4_21_pure.csv", LOG_COLUMNS)
+    public_labeled = _read_log_file(
+        data_dir / "log_standard_4_22_to_5_08_pure.csv",
+        LOG_COLUMNS,
+        max_date=FINAL_TRAIN_END,
+    )
+    train = pd.concat([first, public_labeled], ignore_index=True)
+    score = _read_log_file(
+        data_dir / "log_standard_4_22_to_5_08_pure.csv",
+        CONTEXT_COLUMNS,
+        min_date=TEST_START,
+        max_date=TEST_END,
+    )
     score_users = score["user_id"].to_numpy(copy=True)
     score_videos = score["video_id"].to_numpy(copy=True)
     train, score = _merge_and_engineer(data_dir, train, score)

@@ -14,7 +14,7 @@ from aide.interpreter import ExecutionResult
 from aide.journal import Node
 
 from .metrics import evaluate
-from .protocol import BASELINE_VALID
+from .protocol import BASELINE_VALID, CHAMPION_VALID
 
 
 class KuaiRandPredictionReviewer:
@@ -77,6 +77,10 @@ class KuaiRandPredictionReviewer:
                 key: float(metrics[key] - BASELINE_VALID[key])
                 for key in ("GAUC", "nDCG@5", "primary")
             }
+            champion_deltas = {
+                key: float(metrics[key] - CHAMPION_VALID[key])
+                for key in ("GAUC", "nDCG@5", "primary")
+            }
             np.save(self.artifact_dir / f"{node.id}.npy", scores)
             shutil.copy2(
                 self.prediction_path,
@@ -88,8 +92,13 @@ class KuaiRandPredictionReviewer:
                         key: metrics[key] for key in ("GAUC", "nDCG@5", "primary")
                     },
                     "baseline_deltas": deltas,
+                    "champion_deltas": champion_deltas,
                     "beats_both_components": (
                         deltas["GAUC"] > 0 and deltas["nDCG@5"] > 0
+                    ),
+                    "beats_champion": all(
+                        champion_deltas[key] > 0
+                        for key in ("GAUC", "nDCG@5", "primary")
                     ),
                 },
                 sort_keys=True,

@@ -8,10 +8,11 @@ The journal is the core datastructure in AIDE that contains:
 """
 
 import logging
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from dataclasses_json import DataClassJsonMixin
 from .interpreter import ExecutionResult
@@ -28,6 +29,7 @@ class Node(DataClassJsonMixin):
     # ---- code & plan ----
     code: str
     plan: str = field(default=None, kw_only=True)  # type: ignore
+    candidate_spec: dict[str, Any] = field(default_factory=dict, kw_only=True)
 
     # ---- general attrs ----
     step: int = field(default=None, kw_only=True)  # type: ignore
@@ -231,6 +233,12 @@ class Journal(DataClassJsonMixin):
         summary = []
         for n in self.good_nodes:
             summary_part = f"Design: {n.plan}\n"
+            if n.candidate_spec:
+                summary_part += (
+                    "Candidate specification: "
+                    + json.dumps(n.candidate_spec, sort_keys=True)
+                    + "\n"
+                )
             if include_code:
                 summary_part += f"Code: {n.code}\n"
             summary_part += f"Results: {n.analysis}\n"

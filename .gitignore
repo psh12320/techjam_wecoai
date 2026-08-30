@@ -176,3 +176,29 @@ challenge/artifacts/
 challenge/runs/
 challenge/agent_data/
 challenge/private/
+
+# Credentials and machine-local secrets
+.env.*
+!.env.example
+.secrets/
+secrets/
+*.pem
+*.key
+
+# Datasets, predictions, model weights, and experiment caches
+data/
+datasets/
+input/
+predictions/
+checkpoints/
+wandb/
+*.npy
+*.npz
+*.parquet
+*.pt
+*.pth
+*.ckpt
+
+# Local-only hidden-test/final-refit adapters; never research checkpoint inputs
+challenge/score_test.py
+challenge/run_aide_v18_test.py

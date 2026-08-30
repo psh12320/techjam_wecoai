@@ -30,6 +30,7 @@ def test_hard_timeout_without_eof_returns_timeout(tmp_path, monkeypatch):
 
     monkeypatch.setattr(interpreter_module, "time", _FakeClock())
     kill = Mock()
+    monkeypatch.setattr(interpreter_module.os, "name", "posix")
     monkeypatch.setattr(interpreter_module.os, "kill", kill)
 
     result = interpreter.run("pass", reset_session=False)
@@ -40,6 +41,28 @@ def test_hard_timeout_without_eof_returns_timeout(tmp_path, monkeypatch):
     ]
     assert interpreter.process is None
     kill.assert_called_once_with(123, signal.SIGINT)
+
+
+def test_windows_timeout_uses_cleanup_instead_of_sigint(tmp_path, monkeypatch):
+    """Windows timeout recovery must become a repairable node, not WinError 5."""
+    interpreter = Interpreter(tmp_path, timeout=1)
+    interpreter.process = Mock(pid=123, exitcode=0)
+    interpreter.process.is_alive.return_value = True
+    interpreter.code_inq = Mock()
+    interpreter.event_outq = Mock()
+    interpreter.event_outq.get.side_effect = [("state:ready",), queue.Empty]
+    interpreter.result_outq = Mock()
+
+    monkeypatch.setattr(interpreter_module, "time", _FakeClock())
+    monkeypatch.setattr(interpreter_module.os, "name", "nt")
+    kill = Mock(side_effect=PermissionError("WinError 5"))
+    monkeypatch.setattr(interpreter_module.os, "kill", kill)
+
+    result = interpreter.run("pass", reset_session=False)
+
+    assert result.exc_type == "TimeoutError"
+    assert interpreter.process is None
+    kill.assert_not_called()
 
 
 def test_user_output_matching_old_eof_marker_is_preserved(tmp_path, monkeypatch):
